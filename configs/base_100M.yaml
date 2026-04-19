@@ -1,0 +1,54 @@
+# Base 100M-class config for RTX 3060 12GB.
+# Use with bf16 + grad-checkpoint + accumulation.
+
+model:
+  vocab_size: 248320
+  d_model: 768
+  n_unique_layers: 12
+  n_heads: 12
+  head_dim: 64
+  d_ff: 2048
+  max_seq_len: 2048
+  rope_theta: 10000.0
+  tie_word_embeddings: true
+  L_min: 1
+  L_max: 4
+  grad_checkpoint: true
+
+ilsd:
+  enabled: true
+  lambda_init: 1.0
+  lambda_final: 0.0
+  lambda_anneal_steps: 20000
+  warmup_steps: 2000
+  strict_student_below_teacher: true
+
+data:
+  train_bin: H:/elt_data/bin/train.bin
+  val_bin: H:/elt_data/bin/val.bin
+  seq_len: 2048
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+lr: 3.0e-4
+min_lr: 3.0e-5
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.96
+eps: 1.0e-8
+grad_clip: 1.0
+
+warmup_steps: 2000
+total_steps: 50000
+lr_schedule: cosine
+
+micro_batch_size: 2
+grad_accum_steps: 16
+
+dtype: bf16
+
+log_every: 20
+eval_every: 1000
+save_every: 2000
+run_dir: runs/base_100M
+
+seed: 42

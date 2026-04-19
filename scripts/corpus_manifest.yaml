@@ -1,0 +1,85 @@
+# Source manifest consumed by scripts/build_train_bin.py.
+# Order is preserved; EOS is inserted between documents. Unless --val-fraction
+# is changed, the trailing 2% of the concatenated stream becomes val.bin.
+
+sources:
+  # ---- HF-downloaded flat corpora (English + Japanese + math + code) ----
+  - path: H:/elt_data/raw/wiki_ja.jsonl
+    type: flat
+  - path: H:/elt_data/raw/wiki_en.jsonl
+    type: flat
+  - path: H:/elt_data/raw/metamath.jsonl
+    type: flat
+  - path: H:/elt_data/raw/gsm8k.jsonl
+    type: flat
+  - path: H:/elt_data/raw/magicoder.jsonl
+    type: flat
+  - path: H:/elt_data/raw/magicoder_evol.jsonl
+    type: flat
+  - path: H:/elt_data/raw/glaive_tools.jsonl
+    type: flat
+  - path: H:/elt_data/raw/codefeedback.jsonl
+    type: flat
+  - path: H:/elt_data/raw/opencoder_sft.jsonl
+    type: flat
+  - path: H:/elt_data/raw/opencode_reasoning.jsonl
+    type: flat
+  - path: H:/elt_data/raw/opencode_instruct.jsonl
+    type: flat
+  - path: H:/elt_data/raw/hermes_tools.jsonl
+    type: flat
+  - path: H:/elt_data/raw/toolace.jsonl
+    type: flat
+  - path: H:/elt_data/raw/openmath2.jsonl
+    type: flat
+  - path: H:/elt_data/raw/openthoughts.jsonl
+    type: flat
+  - path: H:/elt_data/raw/cosmopedia.jsonl
+    type: flat
+  - path: H:/elt_data/raw/finemath.jsonl
+    type: flat
+  - path: H:/elt_data/raw/openwebmath.jsonl
+    type: flat
+  - path: H:/elt_data/raw/camel_sci.jsonl
+    type: flat
+  - path: H:/elt_data/raw/tulu3.jsonl
+    type: flat
+  - path: H:/elt_data/raw/swe_gym.jsonl
+    type: flat
+  - path: H:/elt_data/raw/codeact.jsonl
+    type: flat
+  - path: H:/elt_data/raw/agent_instruct.jsonl
+    type: flat
+  - path: H:/elt_data/raw/self_oss_instruct.jsonl
+    type: flat
+  - path: H:/elt_data/raw/orca_agent.jsonl
+    type: flat
+  - path: H:/elt_data/raw/openhermes.jsonl
+    type: flat
+  - path: H:/elt_data/raw/wildchat.jsonl
+    type: flat
+  - path: H:/elt_data/raw/general_thought.jsonl
+    type: flat
+  - path: H:/elt_data/raw/slim_orca.jsonl
+    type: flat
+
+  # ---- Local aegis reasoning/SFT JSONL (math + CoT, JA+EN mixed) ----
+  - path: C:/Users/downl/Desktop/SO8T/data
+    name: aegis_local
+    type: aegis_reasoning        # auto-globs *.jsonl under the dir
+  - path: H:/from_D/SO8T_offload/data
+    name: aegis_offload
+    type: aegis_reasoning
+
+  # ---- Local plain-text Wikipedia snapshot (EN, aerospace/engineering) ----
+  - path: H:/from_D/dataset/wikipedia
+    name: wiki_local
+    type: txt                    # auto-globs *.txt under the dir
+
+  # ---- Local mixed-domain JSONL splits (schema assumed flat `text`) ----
+  - path: H:/from_D/dataset/final/train.jsonl
+    name: final_train
+    type: flat
+  - path: H:/from_D/dataset/final/val.jsonl
+    name: final_val
+    type: flat

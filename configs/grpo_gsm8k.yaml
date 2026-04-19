@@ -1,0 +1,63 @@
+# GRPO post-training on GSM8K. Expects an SFT checkpoint at grpo.init_ckpt.
+# Prompts are built with scripts/build_grpo_prompts.py from raw/gsm8k.jsonl.
+
+model:
+  vocab_size: 248320
+  d_model: 768
+  n_unique_layers: 12
+  n_heads: 12
+  head_dim: 64
+  d_ff: 2048
+  max_seq_len: 2048
+  tie_word_embeddings: true
+  L_min: 1
+  L_max: 4
+  # Grad-checkpoint is fine with GRPO — a full step touches theta only.
+  grad_checkpoint: true
+
+grpo:
+  enabled: true
+  init_ckpt: runs/sft_cot/last.pt
+  prompts_file: H:/elt_data/grpo/gsm8k_prompts.jsonl
+  task: gsm8k
+  group_size: 8
+  rollout_temperature: 1.0
+  rollout_top_k: 64
+  rollout_max_new_tokens: 512
+  rollout_L: 4
+  clip_eps: 0.2
+  kl_beta: 0.05
+  mu_steps: 1
+
+data:
+  # train_bin/val_bin unused in GRPO but need to be set for the dataclass.
+  train_bin: H:/elt_data/bin/train.bin
+  val_bin: H:/elt_data/bin/val.bin
+  seq_len: 2048
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+lr: 1.0e-6
+min_lr: 1.0e-7
+weight_decay: 0.0
+beta1: 0.9
+beta2: 0.99
+eps: 1.0e-8
+grad_clip: 1.0
+
+warmup_steps: 50
+total_steps: 2000
+lr_schedule: cosine
+
+# micro_batch / grad_accum unused in GRPO (one prompt-group per step),
+# but left set so the dataclass is fully populated.
+micro_batch_size: 1
+grad_accum_steps: 1
+
+dtype: bf16
+
+log_every: 1
+eval_every: 200
+save_every: 200
+run_dir: runs/grpo_gsm8k
+
+seed: 42
