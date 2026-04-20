@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import time
 from pathlib import Path
 
 import torch
@@ -22,6 +23,7 @@ from torch.utils.data import DataLoader
 from elt_lm.config import TrainConfig
 from elt_lm.data import PackedTokenDataset
 from elt_lm.model import ELTLanguageModel
+from elt_lm.telemetry import make_writer
 
 
 def load_model(ckpt: str | Path, device: torch.device) -> tuple[ELTLanguageModel, TrainConfig]:
@@ -40,18 +42,28 @@ def eval_at_L(
     L: int,
     device: torch.device,
     max_batches: int,
-) -> tuple[float, float]:
-    """Return (nll_per_token, perplexity) at the given loop count."""
+) -> dict:
+    """Return a dict of metrics at the given loop count.
+
+    Keys: nll, ppl, tokens_per_sec, latency_ms_per_batch, total_tokens, batches.
+    """
     total_nll = 0.0
     total_tok = 0
     seen = 0
+    total_wall = 0.0
     dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
 
     for input_ids, labels in dl:
         input_ids = input_ids.to(device)
         labels = labels.to(device)
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        t0 = time.perf_counter()
         with torch.autocast(device_type=device.type, dtype=dtype):
             out = model(input_ids, L=L)
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        total_wall += (time.perf_counter() - t0)
         shift_logits = out.logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
         loss = F.cross_entropy(
@@ -66,7 +78,16 @@ def eval_at_L(
             break
 
     nll = total_nll / max(1, total_tok)
-    return nll, math.exp(nll)
+    tps = total_tok / max(1e-9, total_wall)
+    latency_ms = (total_wall / max(1, seen)) * 1000.0
+    return {
+        "nll": nll,
+        "ppl": math.exp(nll),
+        "tokens_per_sec": tps,
+        "latency_ms_per_batch": latency_ms,
+        "total_tokens": total_tok,
+        "batches": seen,
+    }
 
 
 def run(args: argparse.Namespace) -> None:
@@ -76,23 +97,56 @@ def run(args: argparse.Namespace) -> None:
     ds = PackedTokenDataset(args.val_bin, seq_len=args.seq_len or cfg.data.seq_len)
     dl = DataLoader(ds, batch_size=args.batch_size, shuffle=False, drop_last=True)
 
-    L_range = range(cfg.model.L_min, cfg.model.L_max + 1)
-    rows: list[dict[str, float | int]] = []
-    for L in L_range:
-        nll, ppl = eval_at_L(model, dl, L, device, args.max_batches)
-        approx_flops = L * cfg.model.n_unique_layers         # relative proxy
-        print(f"L={L}  NLL={nll:.4f}  PPL={ppl:.3f}  relFLOPs={approx_flops}")
-        rows.append({"L": L, "nll": nll, "ppl": ppl, "rel_flops": approx_flops})
+    # `--run-dir` (or inferred from ckpt parent) controls where inference_sweep
+    # events are emitted — the dashboard's Inference panel tails this file.
+    run_dir = Path(args.run_dir) if args.run_dir else Path(args.ckpt).parent
+    telemetry = make_writer(run_dir)
+    try:
+        L_range = range(cfg.model.L_min, cfg.model.L_max + 1)
+        rows: list[dict[str, float | int]] = []
+        for L in L_range:
+            stats = eval_at_L(model, dl, L, device, args.max_batches)
+            approx_flops = L * cfg.model.n_unique_layers         # relative proxy
+            print(
+                f"L={L}  NLL={stats['nll']:.4f}  PPL={stats['ppl']:.3f}  "
+                f"tok/s={stats['tokens_per_sec']:.0f}  "
+                f"batch-latency={stats['latency_ms_per_batch']:.1f}ms  "
+                f"relFLOPs={approx_flops}"
+            )
+            telemetry.emit(
+                "inference_sweep",
+                L=L,
+                rel_flops=approx_flops,
+                nll=stats["nll"],
+                ppl=stats["ppl"],
+                tokens_per_sec=stats["tokens_per_sec"],
+                latency_ms=stats["latency_ms_per_batch"],
+                total_tokens=stats["total_tokens"],
+                batches=stats["batches"],
+                ckpt=str(args.ckpt),
+            )
+            rows.append({
+                "L": L, "nll": stats["nll"], "ppl": stats["ppl"],
+                "tokens_per_sec": stats["tokens_per_sec"],
+                "latency_ms": stats["latency_ms_per_batch"],
+                "rel_flops": approx_flops,
+            })
 
-    out_csv = Path(args.out_csv) if args.out_csv else None
-    if out_csv:
-        out_csv.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_csv, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["L", "nll", "ppl", "rel_flops"])
-            writer.writeheader()
-            for row in rows:
-                writer.writerow(row)
-        print(f"wrote {out_csv}")
+        out_csv = Path(args.out_csv) if args.out_csv else None
+        if out_csv:
+            out_csv.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_csv, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["L", "nll", "ppl", "tokens_per_sec",
+                                "latency_ms", "rel_flops"],
+                )
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow(row)
+            print(f"wrote {out_csv}")
+    finally:
+        telemetry.close()
 
 
 def cli() -> None:
@@ -103,6 +157,9 @@ def cli() -> None:
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--max-batches", type=int, default=50)
     p.add_argument("--out-csv", type=str, default="")
+    p.add_argument("--run-dir", type=str, default="",
+                   help="directory to write inference_sweep telemetry into. "
+                        "Defaults to the checkpoint's parent directory.")
     args = p.parse_args()
     run(args)
 

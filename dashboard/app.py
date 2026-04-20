@@ -28,6 +28,7 @@ if str(ROOT) not in sys.path:
 
 from dashboard.panels import checkpoints as p_ckpt  # noqa: E402
 from dashboard.panels import hardware as p_hw  # noqa: E402
+from dashboard.panels import inference as p_inference  # noqa: E402
 from dashboard.panels import pipeline as p_pipeline  # noqa: E402
 from dashboard.panels import tiers as p_tiers  # noqa: E402
 from dashboard.panels import training as p_training  # noqa: E402
@@ -73,6 +74,8 @@ def main() -> None:
 
     if selected_run is not None:
         p_training.render(selected_run)
+        st.divider()
+        p_inference.render(selected_run)
         st.divider()
         p_tiers.render(selected_run)
         st.divider()
