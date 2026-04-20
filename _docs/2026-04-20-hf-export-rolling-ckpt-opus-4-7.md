@@ -1,0 +1,228 @@
+# 2026-04-20 — HF export + rolling ckpt + WebDataset + pipeline + distillation + startup
+
+**Implemented by:** Claude Opus 4.7
+**Session goal:** answer "SLM size?", enable HuggingFace Hub publishing, add 5-minute
+rolling 3-slot checkpoints, get the repo onto GitHub.
+
+---
+
+## 1. SLM size (`configs/base_100M.yaml`)
+
+`ModelConfig(vocab=248,320, d_model=768, N=12, n_heads=12, head_dim=64, d_ff=2048, tie=True)`:
+
+| component | formula | params |
+|---|---|---|
+| tok_embed | 248,320 × 768 | **190,709,760** |
+| attn (q/k/v/o, no-bias) | 4 × 768² | 2,359,296 |
+| SwiGLU FFN (gate/up/down) | 3 × 768 × 2048 | 4,718,592 |
+| RMSNorm ×2 | 2 × 768 | 1,536 |
+| 1-layer subtotal | — | 7,079,424 |
+| 12 unique layers | — | **84,953,088** |
+| final RMSNorm | 768 | 768 |
+| lm_head (tied) | — | 0 |
+
+- **Total: 275.7 M params**
+- **Non-embedding: 85.0 M** (the "~100M class" figure)
+- **Effective compute at L=4: 48-layer equivalent** (≈340 M vanilla-Transformer FLOPs) on
+  85 M of weight memory — this is the ELT thin-tall design.
+- bf16 on-disk: ~551 MB ; fp32: ~1.1 GB
+- `tiny_10M.yaml` separately materializes to ~11 M params for smoke runs.
+
+## 2. HuggingFace export (`trust_remote_code=True`)
+
+New files:
+- `src/elt_lm/hf/__init__.py` — exports `ELTConfig`, `ELTForCausalLM`.
+- `src/elt_lm/hf/configuration_elt.py` — `PretrainedConfig` subclass, 1:1 with
+  `elt_lm.config.ModelConfig` + `L_default`. `model_type = "elt_lm"`.
+  Exposes `hidden_size`, `max_position_embeddings` for HF utilities. Added
+  `attribute_map = {"num_hidden_layers": "n_unique_layers", "num_attention_heads": "n_heads"}`
+  so `GenerationMixin.generate()` can size caches.
+- `src/elt_lm/hf/modeling_elt.py` — `ELTForCausalLM(PreTrainedModel, GenerationMixin)`.
+  - `_tied_weights_keys = {"lm_head.weight": "elt.tok_embed.weight"}` (dict form for
+    transformers 5.x).
+  - `_keys_to_ignore_on_load_missing = ["lm_head.weight"]`.
+  - `lm_head` is a real `nn.Linear` whose `.weight` is set to
+    `self.elt.tok_embed.weight` (shared `Parameter` object — safetensors dedupes to a
+    single on-disk tensor).
+  - `tie_weights()` re-establishes the share after every load.
+  - `forward(input_ids, attention_mask=None, labels=None, L=None, …)` — L falls back
+    to `config.L_default`; returns `CausalLMOutputWithPast` with shifted CE when
+    labels are supplied.
+  - `prepare_inputs_for_generation` propagates `L` through `generate()` kwargs.
+- `src/elt_lm/hf/model_card_template.md` — Jinja-style placeholders for repo_id,
+  total_m, nonemb_m, L_min/max, eff_depth. Apache 2.0, usage snippet, architecture
+  diagram, ILSD / GRPO citations.
+- `scripts/export_to_hf.py` — `--ckpt --out --tokenizer [--repo-id] [--push-to-hub]`.
+  Loads the `.pt`, builds `ELTConfig.from_model_config`, `save_pretrained` (safetensors),
+  copies modeling/config modules + the `elt_lm` source tree (so trust_remote_code
+  works without the outer package), copies Qwen3.5 tokenizer files, renders README,
+  optionally uploads via `HfApi().upload_folder`.
+
+**Critical bug found & fixed — RoPE buffers.** `RoPECache.cos_cached / sin_cached`
+were registered with `persistent=False`. HF's `from_pretrained` creates the module
+under an init context that leaves non-persistent buffers as zero tensors, and
+`__init__` populates them AFTER that wipe — but the reloaded instance ended up with
+zeros, producing logits that diverged by ~1e-2 from the reference. Switched to
+`persistent=True` in `src/elt_lm/rope.py`: +1 KB on disk, full bitwise parity on the
+state_dict, residual ≤1e-7 (FP32 machine epsilon) on the forward output.
+
+## 3. Rolling 3-slot checkpoints
+
+- `src/elt_lm/config.py` — `TrainConfig` gained `rolling_ckpt_interval_sec: int = 300`
+  and `rolling_ckpt_keep: int = 3`.
+- `src/elt_lm/train.py` — new helpers:
+  - `_build_ckpt_state(model, opt, cfg, step)` — includes `rng_state` and
+    `cuda_rng_state` (when CUDA is available) for deterministic resume.
+  - `_update_last_hardlink(out_dir, path)` — `os.link` with fallback to a copy if
+    the FS rejects the hardlink (Windows NTFS is fine; SMB/FAT fall back).
+  - `class RollingCheckpointer` — round-robin `rolling_{i}.pt` via
+    `(slot+1) % keep`, time-gated by `interval_sec`, always updates `last.pt`.
+  - `load_checkpoint(path, model, opt=None)` — restores model, optimizer, CPU &
+    CUDA RNG, returns the step counter. Ignores missing `cuda_rng_state`
+    transparently when the save was made on CPU.
+  - `train(cfg, resume=None)` — on resume loads from `resume`, starts loop at
+    `global_step = resume_step`, calls `rolling.maybe_save(...)` each step.
+  - `elt-train` CLI gained `--resume PATH`.
+- `src/elt_lm/train_grpo.py` — same rolling machinery; on resume it re-syncs
+  `old.load_state_dict(model.state_dict())` so the old-policy clone matches.
+- Configs: `configs/{tiny_10M,base_100M,grpo_gsm8k}.yaml` set
+  `rolling_ckpt_interval_sec: 300` and `rolling_ckpt_keep: 3`.
+
+## 4. Tests (59/59 passing)
+
+New:
+- `tests/test_rolling_ckpt.py` — 5 tests:
+  1. fills `rolling_0/1/2.pt`,
+  2. slot wraps with no `rolling_3.pt` ever appearing,
+  3. interval gate actually blocks early saves,
+  4. resume restores step + RNG state so subsequent RNG draws match,
+  5. `last.pt` always points at the most recent rolling save.
+- `tests/test_hf_export.py` — 7 tests incl. config round-trip, forward with labels
+  + gradient flow, `save_pretrained` → `from_pretrained` bitwise parity of weights
+  (≤1e-6 forward drift), `L_default` fallback, YAML config round-trip,
+  `model.generate(..., L=k)` for L ∈ {1, 2}.
+
+Existing 47 tests continue to pass.
+
+## 5. GitHub
+
+- Added `.claude/` to `.gitignore`.
+- `git init` → commit `87c356d` → `gh repo create zapabob/elastic-looped-transformer
+  --public --source=. --remote=origin --push`.
+- Data dirs (`H:\elt_data\...`) and checkpoints are path-separated so not in the
+  repo; only code + configs + scripts went up.
+
+## Known followups (for the next session)
+
+- `_docs/` log is live from today — append one entry per meaningful session.
+- DL-2 is still running (~11 sources remaining); DL-3 + cleansing + bin rebuild
+  follow in that order before the Phase-1 100M pretrain.
+- Phase-1 base_100M training has been kicked off in `H:/elt_data/runs/base_100M/`
+  (reports from concurrent agent — rolling_0/1/2.pt are present there).
+- Pending user asks still to address:
+  - full pipeline automation script (DL → clean → bin → smoke → pretrain → SFT →
+    GRPO → eval → HF export) — plan not yet started.
+  - Windows startup auto-resume (Task Scheduler entry that resumes from `last.pt`
+    on boot and self-removes when all phases are done).
+  - HF distillation pipeline from `huihui-ai/Huihui-Qwopus3.5-4B-v3-abliterated`
+    (optional teacher).
+- `H:\from_D\dataset` IS already part of the pipeline via
+  `scripts/corpus_manifest.yaml` (`wikipedia/*.txt` + `final/*.jsonl`).
+
+## Additional — WebDataset integration (same day)
+
+- `scripts/ingest_webdataset.py` — normalizes 10 high-value pretrain sources from
+  `H:/from_D/webdataset/*` into `H:/elt_data/raw/webdataset_*.jsonl` (flat
+  `{text}` schema). Handles JSON arrays, parquet, zstd, gz, jsonl.
+- Registered all 10 under `scripts/corpus_manifest.yaml` + `corpus_manifest_clean.yaml`.
+- Added a separate `--mode detection` path that ingests NSFW / drug /
+  4-class-QLoRA sources into `H:/elt_data/detection/*.jsonl` with labels
+  preserved (`{text, label, category, severity, confidence, ...}`). These train
+  a safety classifier / GRPO verifier — they are **not** in the pretrain
+  manifest, enforced by pointing at a distinct output root.
+- `scripts/safety_manifest.yaml` lists the detection outputs with their schemas
+  and 4-class label vocabulary (ALLOW / ESCALATION / DENY / REFUSE).
+- Nikkei225 subtree skipped (copyrighted; only browser state captures, no
+  usable labeled text).
+
+## End-to-end pipeline + boot auto-resume + distillation
+
+- `scripts/distill_teacher_gen.py` — offline teacher-response generator.
+  Loads `huihui-ai/Huihui-Qwopus3.5-4B-v3-abliterated` in bf16, runs greedy
+  decoding over a prompt bank (GSM8K + MetaMath + OpenCodeInstruct), appends
+  `{"text": "Q: ...\\n\\nA: ..."}` to `H:/elt_data/distill/teacher_sft.jsonl`.
+  Progress sidecar `teacher_sft.progress.json` makes it crash-resumable — kill
+  and re-run, it picks up. Offline was chosen over online-KD because the 4B
+  teacher + 85M student + activations together would blow out 12GB VRAM.
+- `configs/sft_cot.yaml` — Phase-2 CoT SFT config. Same architecture as Phase 1;
+  λ_init=0.5 (teacher/student already close by Phase 2), `total_steps=12000`,
+  pulls from `H:/elt_data/bin/sft_train.bin`.
+- `scripts/pipeline.py` — 11-stage orchestrator with declarative `Stage(name, run)`
+  list. Each stage has a `.done` marker in `H:/elt_data/pipeline_state/`. Stages:
+  `00_download → 01_ingest → 02_clean → 03_tokenize → 04_smoke → 05_pretrain →
+  06_distill → 07_sft → 08_grpo → 09_eval → 10_export_hf`. Resume-aware: each
+  training stage looks at its `runs/<stage>/last.pt` and passes `--resume` when
+  present. After `10_export_hf` the orchestrator invokes
+  `scripts/pipeline_unregister.ps1` to self-remove from startup.
+- `scripts/pipeline_register.ps1` — creates a Windows Task Scheduler entry
+  `ELT-LM-Pipeline` triggered at logon, launching `pipeline_launcher.ps1`
+  (auto-generated) which runs `uv run python scripts/pipeline.py` and tees
+  the log to `H:/elt_data/pipeline_logs/pipeline-<timestamp>.log`. Allowed on
+  battery, 14-day time limit, 3 auto-restarts on failure.
+- `scripts/pipeline_unregister.ps1` — idempotent removal of that task; called
+  by the pipeline on full completion.
+
+Install once:
+```
+powershell -ExecutionPolicy Bypass -File scripts/pipeline_register.ps1
+```
+Pipeline then restarts on every boot/logon until `10_export_hf.done` exists, at
+which point it deletes itself from Task Scheduler.
+
+## Commands worth remembering
+
+```
+uv run pytest -q                                          # 59/59
+uv run elt-train --config configs/tiny_10M.yaml           # smoke (~10M)
+uv run elt-train --config configs/base_100M.yaml --resume runs/base_100M/last.pt
+uv run elt-train-grpo --config configs/grpo_gsm8k.yaml --resume runs/grpo_gsm8k/last.pt
+uv run python scripts/export_to_hf.py \
+  --ckpt runs/base_100M/last.pt \
+  --out  hf_export/elt-lm-base-275m \
+  --tokenizer H:/Qwen3.5-9B-official-hf \
+  --repo-id zapabob/elt-lm-base-275m \
+  --push-to-hub
+
+# Pretrain ingest (10 flat sources)
+uv run python scripts/ingest_webdataset.py \
+  --src H:/from_D/webdataset --out H:/elt_data/raw --mode pretrain
+
+# Safety-classifier ingest (NSFW / drug / 4-class)
+uv run python scripts/ingest_webdataset.py \
+  --src H:/from_D/webdataset --out H:/elt_data/detection --mode detection
+
+# Full pipeline (respects stage markers)
+uv run python scripts/pipeline.py
+uv run python scripts/pipeline.py --dry-run                     # show plan
+uv run python scripts/pipeline.py --only pretrain,sft           # subset
+uv run python scripts/pipeline.py --reset                       # wipe markers
+
+# Windows auto-start on every logon (run once, admin PowerShell)
+powershell -ExecutionPolicy Bypass -File scripts/pipeline_register.ps1
+# Manual removal (pipeline self-removes on completion anyway)
+powershell -ExecutionPolicy Bypass -File scripts/pipeline_unregister.ps1
+```
+# #   2 0 2 6 - 0 4 - 2 0      P i p e l i n e   s t a r t e d   a f t e r   d a t a   i n g e s t  
+ # #   2 0 2 6 - 0 4 - 2 0      P i p e l i n e   s t a r t e d   a f t e r   d a t a   i n g e s t  
+ # #   2 0 2 6 - 0 4 - 2 0      P i p e l i n e   s t a r t e d   a f t e r   d a t a   i n g e s t  
+ # #   2 0 2 6 - 0 4 - 2 0      P i p e l i n e   s t a r t e d   a f t e r   d a t a   i n g e s t  
+ ## 2026-04-20 15:08:54 ? Pipeline started and running
+
+- Started the full 11-stage pipeline in the background at 2026-04-20 15:08:54 (JST).
+- The pipeline is currently processing the tokenization stage (as seen in logs showing camel_sci progress).
+- Logs are being written to H:\elt_data\pipeline_logs\pipeline-<timestamp>.log
+- No stage-done markers yet present in H:\elt_data\pipeline_state (expected for early stages).
+- The pipeline will proceed through: download �� ingest �� clean �� tokenize �� smoke �� pretrain �� distill �� SFT �� GRPO �� eval �� export_hf.
+- Upon completion of export_hf, the pipeline will self-remove from Windows Task Scheduler.
+- To manually check progress: inspect the latest log file or look for .done files in pipeline_state.
+- To manually run or reset: use uv run python scripts/pipeline.py with flags like --only, --dry-run, --reset.

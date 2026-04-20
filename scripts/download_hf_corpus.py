@@ -708,6 +708,53 @@ def pull_opencode_instruct(out_dir: Path, max_bytes: int) -> None:
     )
 
 
+def pull_webdataset_integrated(out_dir: Path, max_bytes: int) -> None:
+    # WebDataset integrated PPO dataset - local file
+    # This reads from H:/from_D/webdataset/datasets/integrated/
+    source_path = Path("H:/from_D/webdataset/datasets/integrated/so8t_integrated_ppo_dataset_main_20251201_205340.jsonl")
+    
+    if not source_path.exists():
+        print(f"[webdataset_integrated] Source file not found: {source_path}")
+        return
+        
+    out_path = out_dir / "webdataset_integrated.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    written = 0
+    with open(source_path, "r", encoding="utf-8") as src, \
+         open(out_path, "w", encoding="utf-8", errors="ignore") as dst:
+        for line in src:
+            try:
+                obj = json.loads(line)
+                instruction = obj.get("instruction", "").strip()
+                input_text = obj.get("input", "").strip()
+                output = obj.get("output", "").strip()
+                
+                # Combine instruction + input + output
+                parts = []
+                if instruction:
+                    parts.append(f"<|user|>\n{instruction}")
+                if input_text:
+                    parts.append(f"<|input|>\n{input_text}")
+                if output:
+                    parts.append(f"<|assistant|>\n{output}")
+                
+                text = "\n\n".join(parts)
+                if not text:
+                    continue
+                    
+                line_out = json.dumps({"text": text, "source": "webdataset_integrated"}, ensure_ascii=False)
+                dst.write(line_out + "\n")
+                written += len((line_out + "\n").encode("utf-8"))
+                
+                if written >= max_bytes:
+                    break
+            except json.JSONDecodeError:
+                continue
+    
+    print(f"  -> {out_path}  bytes={written/1e9:.2f}GB")
+
+
 def pull_xlam_tools(out_dir: Path, max_bytes: int) -> None:
     # Salesforce xLAM APIGen: single/parallel function-calling, modern schema.
     ds = load_dataset(
@@ -773,6 +820,8 @@ SOURCES: dict[str, tuple[Callable[[Path, int], None], int]] = {
     "openwebmath":    (pull_openwebmath,     1_500_000_000),  # 1.5 GB math-heavy web
     "camel_sci":      (pull_camel_sci,         300_000_000),  # 0.3 GB physics/chem/bio
     "tulu3":          (pull_tulu3,             800_000_000),  # 0.8 GB broad STEM SFT
+    # --- WebDataset integration ---
+    "webdataset_integrated": (pull_webdataset_integrated, 500_000_000),  # 0.5 GB webdataset PPO data
 }
 
 

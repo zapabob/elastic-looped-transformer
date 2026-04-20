@@ -132,6 +132,11 @@ class TrainConfig:
     save_every: int = 2_000
     run_dir: str = "runs/default"
 
+    # Rolling checkpoint (crash recovery, independent of save_every milestones).
+    # Saves to rolling_{0..keep-1}.pt round-robin; always updates last.pt hardlink.
+    rolling_ckpt_interval_sec: int = 300   # 5 min
+    rolling_ckpt_keep: int = 3
+
     # Reproducibility
     seed: int = 42
 

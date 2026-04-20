@@ -19,8 +19,9 @@ from torch import Tensor, nn
 class RoPECache(nn.Module):
     """Precomputes cos/sin tables up to max_seq_len.
 
-    The tables have shape (max_seq_len, head_dim). cos/sin are stored as non-persistent
-    buffers so they are not serialized into checkpoints.
+    The tables have shape (max_seq_len, head_dim). cos/sin are stored as persistent
+    buffers — HF's from_pretrained flow wipes non-persistent buffers before calling
+    __init__, so keeping them persistent is the robust way to survive save/load.
     """
 
     cos_cached: Tensor
@@ -39,8 +40,8 @@ class RoPECache(nn.Module):
         freqs = torch.outer(t, inv_freq)                   # (T, half)
         emb = torch.cat([freqs, freqs], dim=-1)            # (T, D)  — [f0..f_{D/2-1}, f0..f_{D/2-1}]
 
-        self.register_buffer("cos_cached", emb.cos(), persistent=False)
-        self.register_buffer("sin_cached", emb.sin(), persistent=False)
+        self.register_buffer("cos_cached", emb.cos(), persistent=True)
+        self.register_buffer("sin_cached", emb.sin(), persistent=True)
 
     def forward(self, seq_len: int, device: torch.device, dtype: torch.dtype) -> tuple[Tensor, Tensor]:
         assert seq_len <= self.max_seq_len, \

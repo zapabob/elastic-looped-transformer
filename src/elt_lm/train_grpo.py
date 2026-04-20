@@ -35,7 +35,14 @@ from torch import Tensor
 from elt_lm.config import TrainConfig, load_train_config
 from elt_lm.grpo import GRPOOutput, group_advantage, grpo_loss
 from elt_lm.model import ELTLanguageModel
-from elt_lm.train import configure_optimizer, get_dtype, lr_at, save_checkpoint
+from elt_lm.train import (
+    RollingCheckpointer,
+    configure_optimizer,
+    get_dtype,
+    load_checkpoint,
+    lr_at,
+    save_checkpoint,
+)
 from elt_lm.verifiers import CompositeVerifier
 
 
@@ -145,7 +152,7 @@ def rollout_group(
 # main loop
 # ---------------------------------------------------------------------------
 
-def train_grpo(cfg: TrainConfig) -> None:
+def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
     assert cfg.grpo.enabled, "grpo.enabled must be true for train_grpo"
     assert cfg.grpo.init_ckpt, "grpo.init_ckpt must point at the SFT checkpoint"
     assert cfg.grpo.prompts_file, "grpo.prompts_file must point at prompts JSONL"
@@ -186,12 +193,24 @@ def train_grpo(cfg: TrainConfig) -> None:
     opt = configure_optimizer(model, cfg)
     verifier = CompositeVerifier(task=cfg.grpo.task)
 
+    resume_step = 0
+    if resume:
+        resume_step = load_checkpoint(resume, model, opt)
+        # π_θ_old must track π_θ after resume to avoid stale-behavior rollouts
+        old.load_state_dict(model.state_dict())
+
+    rolling = RollingCheckpointer(
+        run_dir,
+        interval_sec=cfg.rolling_ckpt_interval_sec,
+        keep=cfg.rolling_ckpt_keep,
+    )
+
     pad_id = int(tok.pad_token_id)
     eos_id = int(tok.eos_token_id)
 
     # ---- loop ------------------------------------------------------------
     t0 = time.time()
-    for step in range(cfg.total_steps):
+    for step in range(resume_step, cfg.total_steps):
         row = prompts[step % len(prompts)]
         prompt_text = row["prompt"]
         reference = row["reference"]
@@ -279,6 +298,8 @@ def train_grpo(cfg: TrainConfig) -> None:
         if cfg.save_every and step > 0 and step % cfg.save_every == 0:
             save_checkpoint(model, opt, cfg, step, run_dir)
 
+        rolling.maybe_save(model, opt, cfg, step)
+
     save_checkpoint(model, opt, cfg, cfg.total_steps, run_dir)
     print(f"grpo done in {(time.time()-t0)/60:.1f} min")
 
@@ -286,6 +307,7 @@ def train_grpo(cfg: TrainConfig) -> None:
 def cli() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", required=True)
+    p.add_argument("--resume", default=None)
     p.add_argument("--override", nargs="*", default=[])
     args = p.parse_args()
 
@@ -302,7 +324,7 @@ def cli() -> None:
         except (TypeError, ValueError):
             pass
 
-    train_grpo(cfg)
+    train_grpo(cfg, resume=args.resume)
 
 
 if __name__ == "__main__":

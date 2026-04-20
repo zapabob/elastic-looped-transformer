@@ -61,16 +61,8 @@ def configure_optimizer(model: ELTLanguageModel, cfg: TrainConfig) -> torch.opti
     )
 
 
-def save_checkpoint(model: ELTLanguageModel, opt: torch.optim.Optimizer, cfg: TrainConfig,
-                    step: int, out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"step_{step:07d}.pt"
-    torch.save({
-        "step": step,
-        "model": model.state_dict(),
-        "optim": opt.state_dict(),
-        "cfg": cfg,
-    }, path)
+def _update_last_hardlink(out_dir: Path, path: Path) -> None:
+    """Point `out_dir/last.pt` at `path` via NTFS hardlink (with copy fallback)."""
     latest = out_dir / "last.pt"
     try:
         if latest.exists() or latest.is_symlink():
@@ -78,14 +70,88 @@ def save_checkpoint(model: ELTLanguageModel, opt: torch.optim.Optimizer, cfg: Tr
     except OSError:
         pass
     try:
-        os.link(path, latest)          # hardlink (Windows supports on NTFS)
+        os.link(path, latest)
     except OSError:
-        # fallback: just copy the file (rare)
         torch.save(torch.load(path, map_location="cpu"), latest)
+
+
+def _build_ckpt_state(model: ELTLanguageModel, opt: torch.optim.Optimizer,
+                      cfg: TrainConfig, step: int, extra: dict | None = None) -> dict:
+    state = {
+        "step": step,
+        "model": model.state_dict(),
+        "optim": opt.state_dict(),
+        "cfg": cfg,
+        "rng_state": torch.get_rng_state(),
+        "wall_time": time.time(),
+    }
+    if torch.cuda.is_available():
+        state["cuda_rng_state"] = torch.cuda.get_rng_state_all()
+    if extra:
+        state.update(extra)
+    return state
+
+
+def save_checkpoint(model: ELTLanguageModel, opt: torch.optim.Optimizer, cfg: TrainConfig,
+                    step: int, out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"step_{step:07d}.pt"
+    torch.save(_build_ckpt_state(model, opt, cfg, step), path)
+    _update_last_hardlink(out_dir, path)
     print(f"  saved {path}")
 
 
-def train(cfg: TrainConfig) -> None:
+class RollingCheckpointer:
+    """Time-based rolling checkpoint: writes slot_{0..keep-1} round-robin.
+
+    Independent from save_every step-snapshots; intended for crash recovery.
+    Always updates out_dir/last.pt to point at the most recent rolling write.
+    """
+
+    def __init__(self, out_dir: Path, interval_sec: int, keep: int):
+        self.out_dir = out_dir
+        self.interval = max(1, int(interval_sec))
+        self.keep = max(1, int(keep))
+        self.last_save_t = time.time()
+        self.next_slot = 0
+
+    def maybe_save(self, model: ELTLanguageModel, opt: torch.optim.Optimizer,
+                   cfg: TrainConfig, step: int, force: bool = False) -> bool:
+        now = time.time()
+        if not force and (now - self.last_save_t) < self.interval:
+            return False
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        path = self.out_dir / f"rolling_{self.next_slot}.pt"
+        torch.save(_build_ckpt_state(model, opt, cfg, step), path)
+        _update_last_hardlink(self.out_dir, path)
+        saved_slot = self.next_slot
+        self.next_slot = (self.next_slot + 1) % self.keep
+        self.last_save_t = now
+        print(f"  rolling-ckpt slot {saved_slot} -> {path}")
+        return True
+
+
+def load_checkpoint(path: str | Path, model: ELTLanguageModel,
+                    opt: torch.optim.Optimizer | None = None) -> int:
+    """Load a checkpoint, restore RNG state, return the step index to resume from."""
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    model.load_state_dict(state["model"] if "model" in state else state)
+    if opt is not None and "optim" in state:
+        opt.load_state_dict(state["optim"])
+    if "rng_state" in state:
+        torch.set_rng_state(state["rng_state"].to("cpu") if hasattr(state["rng_state"], "to")
+                            else state["rng_state"])
+    if torch.cuda.is_available() and "cuda_rng_state" in state:
+        try:
+            torch.cuda.set_rng_state_all(state["cuda_rng_state"])
+        except (RuntimeError, TypeError):
+            pass
+    step = int(state.get("step", 0))
+    print(f"  resumed from {path} (step {step})")
+    return step
+
+
+def train(cfg: TrainConfig, resume: str | None = None) -> None:
     torch.manual_seed(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = get_dtype(cfg.dtype)
@@ -103,6 +169,16 @@ def train(cfg: TrainConfig) -> None:
     opt = configure_optimizer(model, cfg)
     loss_fn = ILSDLossFn(cfg.model, cfg.ilsd, seed=cfg.seed)
 
+    resume_step = 0
+    if resume:
+        resume_step = load_checkpoint(resume, model, opt)
+
+    rolling = RollingCheckpointer(
+        run_dir,
+        interval_sec=cfg.rolling_ckpt_interval_sec,
+        keep=cfg.rolling_ckpt_keep,
+    )
+
     # ---- data -------------------------------------------------------------
     train_ds = PackedTokenDataset(cfg.data.train_bin, seq_len=cfg.data.seq_len)
     train_dl = DataLoader(
@@ -116,7 +192,7 @@ def train(cfg: TrainConfig) -> None:
     print(f"train tokens: {train_ds.n_tokens:,} | windows: {len(train_ds):,}")
 
     # ---- loop -------------------------------------------------------------
-    global_step = 0
+    global_step = resume_step
     micro_step = 0
     t0 = time.time()
     accum_loss = 0.0
@@ -157,6 +233,8 @@ def train(cfg: TrainConfig) -> None:
             if cfg.save_every and global_step > 0 and global_step % cfg.save_every == 0:
                 save_checkpoint(model, opt, cfg, global_step, run_dir)
 
+            rolling.maybe_save(model, opt, cfg, global_step)
+
             global_step += 1
             if global_step >= cfg.total_steps:
                 break
@@ -168,6 +246,8 @@ def train(cfg: TrainConfig) -> None:
 def cli() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", required=True)
+    p.add_argument("--resume", default=None,
+                   help="path to checkpoint to resume from (usually runs/<name>/last.pt)")
     p.add_argument("--override", nargs="*", default=[], help="override TrainConfig fields: key=value")
     args = p.parse_args()
 
@@ -187,7 +267,7 @@ def cli() -> None:
         except (TypeError, ValueError) as e:
             print(f"[warn] could not cast {key}={value}: {e}", file=sys.stderr)
 
-    train(cfg)
+    train(cfg, resume=args.resume)
 
 
 if __name__ == "__main__":

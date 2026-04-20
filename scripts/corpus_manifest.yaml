@@ -62,6 +62,32 @@ sources:
     type: flat
   - path: H:/elt_data/raw/slim_orca.jsonl
     type: flat
+  # ---- WebDataset integrated PPO dataset ----
+  - path: H:/elt_data/raw/webdataset_integrated.jsonl
+    type: flat
+
+  # ---- WebDataset (H:/from_D/webdataset) normalized via ingest_webdataset.py ----
+  # Run: uv run python scripts/ingest_webdataset.py --src H:/from_D/webdataset --out H:/elt_data/raw
+  - path: H:/elt_data/raw/webdataset_alpaca_ja.jsonl
+    type: flat
+  - path: H:/elt_data/raw/webdataset_sharegpt_ja.jsonl
+    type: flat
+  - path: H:/elt_data/raw/webdataset_fujiki_ja.jsonl
+    type: flat
+  - path: H:/elt_data/raw/webdataset_oasst2.jsonl
+    type: flat
+  - path: H:/elt_data/raw/webdataset_wizard_vicuna.jsonl
+    type: flat
+  - path: H:/elt_data/raw/webdataset_slimpajama.jsonl
+    type: flat
+  - path: H:/elt_data/raw/webdataset_coding.jsonl
+    type: flat
+  - path: H:/elt_data/raw/webdataset_coding_train.jsonl
+    type: flat
+  - path: H:/elt_data/raw/webdataset_domain_knowledge.jsonl
+    type: flat
+  - path: H:/elt_data/raw/webdataset_phi35.jsonl
+    type: flat
 
   # ---- Local aegis reasoning/SFT JSONL (math + CoT, JA+EN mixed) ----
   - path: C:/Users/downl/Desktop/SO8T/data

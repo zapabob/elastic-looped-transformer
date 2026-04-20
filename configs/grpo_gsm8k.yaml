@@ -60,4 +60,8 @@ eval_every: 200
 save_every: 200
 run_dir: runs/grpo_gsm8k
 
+# Rolling ckpt: every 5 min, 3 slots (rolling_{0,1,2}.pt).
+rolling_ckpt_interval_sec: 300
+rolling_ckpt_keep: 3
+
 seed: 42

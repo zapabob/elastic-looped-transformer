@@ -1,0 +1,63 @@
+# Safety / detection manifest.
+#
+# This is NOT consumed by build_train_bin.py and must never be mixed into the
+# pretrain corpus — otherwise NSFW / drug / illegal content would leak into the
+# causal-LM distribution. These sources train a downstream safety classifier
+# head or a GRPO verifier (4-class ALLOW/ESCALATION/DENY/REFUSE) on top of the
+# frozen base model.
+#
+# Generate with:
+#   uv run python scripts/ingest_webdataset.py \
+#     --src H:/from_D/webdataset \
+#     --out H:/elt_data/detection \
+#     --mode detection
+#
+# Each record: {"text": "...", "label": "...", "category": "...", ...}
+
+purpose: safety_classifier
+four_class_labels: [ALLOW, ESCALATION, DENY, REFUSE]
+
+sources:
+  # --- NSFW content detection (JP + EN, 23 fine-grained categories) ---
+  - path: H:/elt_data/detection/detection_nsfw_train.jsonl
+    split: train
+    schema: nsfw_detection
+  - path: H:/elt_data/detection/detection_nsfw_val.jsonl
+    split: val
+    schema: nsfw_detection
+
+  # --- Drug / pharmaceutical detection (PMDA + UNODC + WHO) ---
+  - path: H:/elt_data/detection/detection_drug_train.jsonl
+    split: train
+    schema: drug_detection
+  - path: H:/elt_data/detection/detection_drug_val.jsonl
+    split: val
+    schema: drug_detection
+
+  # --- 4-class (ALLOW/ESCALATION/DENY/REFUSE) QLoRA SFT data ---
+  - path: H:/elt_data/detection/detection_4class_qlora.jsonl
+    split: train
+    schema: four_class_sft
+
+  # --- Negative-class raw text (japanese NSFW fiction) ---
+  - path: H:/elt_data/detection/detection_elizezen_nsfw.jsonl
+    split: train
+    schema: raw_negative
+    label_override: DENY
+
+  # --- English NSFW-Safe classifier data (eliasalbouzidi) ---
+  - path: H:/elt_data/detection/detection_nsfw_safe_train.jsonl
+    split: train
+    schema: binary_nsfw
+  - path: H:/elt_data/detection/detection_nsfw_safe_test.jsonl
+    split: test
+    schema: binary_nsfw
+
+# Notes
+# -----
+# - nikkei225_deepresearch/ is skipped: no usable labeled data (only browser
+#   state + screenshots) and the text content is Nikkei-copyrighted news.
+# - metadata.json in each source dir enumerates categories / severity /
+#   legal_status / source_name — preserved verbatim into each record for
+#   downstream stratified sampling.
+# - DO NOT add any path under this file to scripts/corpus_manifest.yaml.

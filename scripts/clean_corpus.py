@@ -232,10 +232,32 @@ def cli() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", required=True)
     p.add_argument("--out", required=True)
+    
+    # First parse to get config file
+    temp_args, _ = p.parse_known_args()
+    
+    # Load manifest to get source names for --only choices
+    with open(temp_args.config, "r", encoding="utf-8") as f:
+        manifest = yaml.safe_load(f)
+    
+    # Add --only argument with choices from manifest
+    source_names = [entry.get("name") or Path(entry["path"]).stem for entry in manifest.get("sources", [])]
+    p.add_argument(
+        "--only",
+        nargs="+",
+        choices=source_names,
+        help="Process only specific sources (by name from manifest)",
+    )
     args = p.parse_args()
 
-    with open(args.config, "r", encoding="utf-8") as f:
-        manifest = yaml.safe_load(f)
+    # Filter manifest if --only is specified
+    if args.only:
+        filtered_sources = []
+        for entry in manifest.get("sources", []):
+            source_name = entry.get("name") or Path(entry["path"]).stem
+            if source_name in args.only:
+                filtered_sources.append(entry)
+        manifest["sources"] = filtered_sources
 
     process(manifest, Path(args.out))
 

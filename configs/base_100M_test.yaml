@@ -38,7 +38,7 @@ eps: 1.0e-8
 grad_clip: 1.0
 
 warmup_steps: 2000
-total_steps: 50000
+total_steps: 10
 lr_schedule: cosine
 
 micro_batch_size: 2
