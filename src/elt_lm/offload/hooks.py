@@ -117,11 +117,16 @@ def install_offload_into_training(
     """
     from elt_lm.offload.hardware_profile import probe_hardware
 
-    nvme_root = Path(run_dir) / "offload_nvme"
+    # Determine NVMe root: use cfg.offload.root if set, otherwise default to run_dir / "offload_nvme"
+    if cfg.offload.root is not None:
+        nvme_root = Path(cfg.offload.root)
+    else:
+        nvme_root = Path(run_dir) / "offload_nvme"
+
     hw = probe_hardware(nvme_path=nvme_root)
     plan = plan_placement(model, hw)
 
-    store = TieredParameterStore(model, plan, nvme_root=nvme_root)
+    store = TieredParameterStore(model, plan, nvme_root=nvme_root, offload_config=cfg.offload)
     name_lookup = build_name_lookup(model)
 
     # Mirror the weight-decay-on-2D-params-only convention from train.configure_optimizer.

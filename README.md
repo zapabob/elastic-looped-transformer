@@ -3,40 +3,42 @@
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![python](https://img.shields.io/badge/python-3.12-blue.svg)
 ![pytorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)
-![tests](https://img.shields.io/badge/tests-59%2F59%20passing-brightgreen.svg)
-![params](https://img.shields.io/badge/non--emb%20params-85M-informational.svg)
-![effective depth](https://img.shields.io/badge/effective%20depth-48--layer%20at%20L%3D4-success.svg)
+![tests](https://img.shields.io/badge/tests-105%2F105%20passing-brightgreen.svg)
+![scales](https://img.shields.io/badge/configs-10M%20%7C%20100M%20%7C%20300M%20%7C%201B-informational.svg)
+![effective depth](https://img.shields.io/badge/effective%20depth-up%20to%20112--layer%20at%20L%3D4-success.svg)
 
-> **TL;DR** — An **85M non-embedding** causal LM that computes like a **340M** one.
-> Twelve Transformer layers whose **weights are shared across L iterations** at
-> inference — you pick `L ∈ [1, 4]` per request to trade quality for latency.
-> Trained with **Intra-Loop Self-Distillation (ILSD)**, then **GRPO** with a
-> `correct × format` verifier. Bilingual JA / EN, Qwen3.5 tokenizer (248K vocab).
-> Faithful PyTorch port of **[arXiv:2604.09168](https://arxiv.org/abs/2604.09168)**
-> with paper equations preserved verbatim.
+> **TL;DR** — A causal LM whose Transformer layers are **weight-shared across L
+> iterations**. Pick `L ∈ [1, 4]` per request at inference to trade quality for
+> latency — from the **same checkpoint**. Trained with **Intra-Loop
+> Self-Distillation** + **GRPO** with a `correct × format` verifier. Scales
+> shipped from 10M to **1 B non-embedding**, runnable on a single **RTX 3060 12 GB**
+> via 8-bit paged or fp32-on-NVMe optimizer state. Faithful PyTorch port of
+> **[arXiv:2604.09168](https://arxiv.org/abs/2604.09168)**.
 
 ---
 
-## Why this is interesting
+## What's in the box
 
-- **Thin-tall on a diet.** 12 unique layers × L=4 iterations ≈ **48-layer effective
-  depth** on 12 layers of memory. You store a small model and compute a big one.
-- **Any-time inference.** `model.generate(ids, L=2)` is fast. `L=4` thinks harder.
-  Same checkpoint, user picks at call time. No retraining, no re-export.
-- **Self-teaching.** ILSD (eq. 3) treats `L = L_max` as the teacher for a
-  `L_int ∼ U(L_min, L_max)` student. Fixes the "short-loop output is noisy"
-  failure mode without a separate teacher model.
-- **GRPO post-training.** DeepSeekMath §4.1: group-relative advantage, clipped
-  surrogate, unbiased KL vs. the SFT reference. Verifier is `correct · format`
-  with length + repeat guards, so the policy cannot reward-hack by emitting
-  boilerplate.
-- **Rolling 5-minute checkpoints.** Round-robin `rolling_{0..2}.pt` + `last.pt`
-  hardlink + full CPU/CUDA RNG state in the save, so a crash loses at most
-  ~5 minutes of work and resumes are bit-reproducible.
-- **HuggingFace Hub ready.** `trust_remote_code=True` export bundles the model
-  code with the checkpoint — one directory, one `from_pretrained` call.
+- **ELT core** (`src/elt_lm/`) — N shared Transformer layers iterated L times at
+  inference. Paper equations preserved verbatim in code.
+- **ILSD** — Intra-Loop Self-Distillation (`loss = L_GT(T) + λ L_GT(S) + (1−λ) L_dist(S, sg T)`)
+  with `L_int ∼ U(L_min, L_max)` student, linear λ decay from 1 → 0.
+- **GRPO** — DeepSeekMath §4.1 post-training with clipped surrogate + unbiased
+  KL to frozen SFT reference. Verifier is `correct · format` with length +
+  repeat guards. Python-exec verifier for code tasks.
+- **Memory stack for 1 B on 12 GB VRAM** — two optimizer back-ends:
+  - `paged_adamw_8bit` (bitsandbytes) — **peak 7.88 GB VRAM** on the 1 B config, fast.
+  - `nvme_adamw` — custom 4-tier store with fp32 optimizer state **memory-mapped
+    on NVMe**; params stay on GPU, state round-trips CPU→NVMe each step.
+- **Rolling 5-minute checkpoints** — round-robin `rolling_{0..keep-1}.pt` +
+  `last.pt` hardlink + CPU/CUDA RNG state → bit-reproducible resume.
+- **HuggingFace Hub export** — `trust_remote_code=True` bundle (model code +
+  weights + tokenizer + rendered README in one directory).
+- **Streamlit dashboard** — live panels for pipeline / training / storage tiers
+  / hardware / inference Pareto / checkpoints, fed by a line-buffered JSONL
+  telemetry writer.
 
-## Quickstart
+## Quickstart (use a published checkpoint)
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -49,16 +51,10 @@ model = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.bfloat16,
 ).eval().cuda()
 
-prompt = "If 3x + 7 = 22, what is x? Think step by step."
-ids = tok(prompt, return_tensors="pt").input_ids.cuda()
+ids = tok("If 3x + 7 = 22, what is x? Think step by step.",
+          return_tensors="pt").input_ids.cuda()
 
-out = model.generate(ids, max_new_tokens=256, L=4, do_sample=False)
-print(tok.decode(out[0], skip_special_tokens=True))
-```
-
-Any-Time sweep — same checkpoint, different quality:
-
-```python
+# Same checkpoint, user picks L per call.
 for L in (1, 2, 3, 4):
     out = model.generate(ids, max_new_tokens=128, L=L, do_sample=False)
     print(f"L={L}: {tok.decode(out[0], skip_special_tokens=True)}")
@@ -71,43 +67,98 @@ input_ids ──embed──► x₀ ──g_Θ──► x₁ ──g_Θ──►
                        └─── weights SHARED across every iteration ───┘
 ```
 
-Paper equations preserved verbatim in code:
-
 | eq. | where | what |
 |---|---|---|
-| `g_Θ(x) = f_{θ_N} ∘ … ∘ f_{θ_1}(x)` | `src/elt_lm/composite.py` | composite block (N unique layers) |
+| `g_Θ(x) = f_{θ_N} ∘ … ∘ f_{θ_1}(x)` | `src/elt_lm/composite.py` | composite block, N unique layers |
 | `F_{N,L}(x) = g_Θ^L(x)` | `src/elt_lm/model.py` | L-fold iteration |
-| `L_ILSD = L_GT(T) + λ L_GT(S) + (1−λ) L_dist(S, sg T)` | `src/elt_lm/losses.py` | intra-loop distillation |
+| `L_ILSD = L_GT(T) + λ L_GT(S) + (1−λ) L_dist(S, sg T)` | `src/elt_lm/losses.py` | intra-loop distillation (paper eq. 3) |
 | `L_int ∼ U(L_min, L_max)` | `src/elt_lm/train.py` | stochastic student L |
 | `λ: 1 → 0` (linear) | `src/elt_lm/train.py` | distillation curriculum |
 
-## Sizing (base_100M config)
+## Shipped scales
 
-| | total | non-embedding | effective compute (L=4) |
-|---|---|---|---|
-| base_100M | **275.7 M** | **85.0 M** | ≈ 340 M-class FLOPs |
+| config | d_model | N | non-emb | total | effective (L=4) | target hardware |
+|---|---|---|---|---|---|---|
+| `tiny_10M.yaml` | 256 | 4 | 3.5 M | ~67 M | 16-layer | CPU smoke |
+| `base_100M.yaml` | 768 | 12 | **85 M** | 275 M | 48-layer | 12 GB GPU, fp32 Adam |
+| `smoke_300M.yaml` | 1024 | 16 | 205 M | 460 M | 64-layer | NvmeAdamW validation |
+| `base_1B.yaml` | 1792 | 28 | **1.09 B** | 1.54 B | **112-layer** | 12 GB GPU w/ PagedAdamW8bit |
 
-Token embedding (248K × 768) dominates the parameter count — the model body is
-only 85M. On-disk weight size: ~551 MB bf16 / ~1.1 GB fp32.
+Token embedding (248 K × d_model) dominates the parameter count at smaller
+scales; the interesting number is **non-emb**, which is what gets iterated.
+
+## 1 B training on a 12 GB card
+
+```bash
+uv run elt-train --config configs/base_1B.yaml
+```
+
+With `optim.kind: paged_adamw_8bit`:
+
+| measure | value |
+|---|---|
+| model params | 1.537 B total, 1.092 B non-emb |
+| **peak VRAM** | **7.88 GB** |
+| one-step smoke | ~5.0 s (incl. cuDNN warm-up) |
+
+Alternative — NVMe-backed fp32 state (`optim.kind: nvme_adamw`):
+
+```yaml
+# configs/your_run.yaml
+optim:
+  kind: nvme_adamw
+offload:
+  enabled: true
+  root: H:/elt_data/offload_nvme  # where to mmap fp32 state shards
+  min_free_gb: 20.0               # refuse to start if less
+```
+
+Measured on `smoke_300M.yaml` × NvmeAdamW, RTX 3060:
+
+| measure | value |
+|---|---|
+| params | 0.46 B total, 0.21 B non-emb |
+| peak VRAM | 4.38 GB |
+| step (fwd + bwd + NvmeAdamW.step) | 128.7 s |
+
+VRAM drops further, but NVMe bandwidth becomes the bottleneck — use
+`nvme_adamw` only when VRAM is the hard constraint.
 
 ## Training pipeline
 
-Three phases, all resumable, all driven by one orchestrator:
+Three phases, resumable, driven by one orchestrator:
 
 | stage | config | what it does |
 |---|---|---|
-| **Phase 1** — Pretrain | `configs/base_100M.yaml` | ILSD with warmup-then-anneal λ, bf16 + grad-ckpt + 32× accum |
-| **Phase 2** — SFT | `configs/sft_cot.yaml` | CoT instruction + offline distillation from `huihui-ai/Huihui-Qwopus3.5-4B-v3-abliterated` |
-| **Phase 3** — GRPO | `configs/grpo_gsm8k.yaml` | clipped surrogate + unbiased KL, `correct × format` verifier with length guards |
+| **Phase 1** — Pretrain | `configs/base_100M.yaml` / `configs/base_1B.yaml` | ILSD with warmup-then-anneal λ, bf16 + grad-ckpt + grad-accum |
+| **Phase 2** — SFT | `configs/sft_cot.yaml` | CoT instruction + offline distillation |
+| **Phase 3** — GRPO | `configs/grpo_gsm8k.yaml` | clipped surrogate + unbiased KL, `correct × format` verifier |
 
 ```bash
-# Single-command end-to-end pipeline (11 stages, respects .done markers)
+# End-to-end 11-stage pipeline (respects .done markers)
 uv run python scripts/pipeline.py
 
-# Register as Windows startup task — auto-resumes on every boot, deletes
-# itself from Task Scheduler after the final stage completes.
+# Register as Windows startup task — auto-resumes on every boot, removes
+# itself from Task Scheduler once the final stage is done.
 powershell -ExecutionPolicy Bypass -File scripts/pipeline_register.ps1
 ```
+
+## Dashboard
+
+```bash
+uv sync --extra dashboard
+uv run streamlit run dashboard/app.py
+# → http://localhost:8501
+```
+
+Panels:
+
+- **Pipeline** — `.done` markers + tail of `pipeline.jsonl`
+- **Training** — loss / lr / grad-norm / tok-per-sec, λ curve, L_int histogram
+- **Storage tiers** — NVMe MB/s, prefetch hit rate, per-layer compute tier
+- **Hardware** — VRAM (NVML), CPU/RAM (psutil), C:/H: free
+- **Inference Pareto** — L vs. quality / latency / tok-per-sec (from `inference_sweep`)
+- **Checkpoints** — rolling slot, age, disk usage
 
 ## HuggingFace Hub export
 
@@ -120,38 +171,42 @@ uv run python scripts/export_to_hf.py \
   --push-to-hub
 ```
 
-The export bundles `configuration_elt.py`, `modeling_elt.py`, `config.json`,
+Bundles `configuration_elt.py`, `modeling_elt.py`, `config.json`,
 `model.safetensors`, tokenizer files, and a rendered `README.md`. Downstream
-users need nothing beyond `pip install transformers`.
+users only need `pip install transformers`.
 
 ## Rolling checkpoints
 
-Every training loop runs a `RollingCheckpointer`:
-
-- `rolling_{0, 1, 2}.pt` round-robin every `rolling_ckpt_interval_sec` (5 min)
-- `last.pt` hardlinked to the latest save — resume-friendly anchor
+- `rolling_{0..keep-1}.pt` round-robin every `rolling_ckpt_interval_sec` (5 min default)
+- `last.pt` hardlinked to the latest save — resume anchor
 - `step_*.pt` milestone saves every `save_every`
-- RNG state (CPU + CUDA) in each save → deterministic resume
+- CPU + CUDA RNG state in each save → deterministic resume
 
-Crash and lose at most one interval; `--resume runs/<dir>/last.pt` picks up.
+Crash loses at most one interval; `--resume runs/<dir>/last.pt` picks up.
 
 ## Repo layout
 
 ```
-src/elt_lm/          # model, layers, losses, train loops, HF wrapper
-src/elt_lm/hf/       # trust_remote_code bundle (ELTConfig, ELTForCausalLM)
-src/elt_lm/eval/     # any-time L-sweep, verifiers, python-exec guard
-configs/             # tiny_10M, base_100M, sft_cot, grpo_gsm8k
-scripts/             # data DL / clean / tokenize / pipeline / HF export
-tests/               # 59 tests, run with `uv run pytest -q`
-_docs/               # implementation log (YYYY-MM-DD-<slug>-<AI>.md)
+src/elt_lm/          model, layers, losses, train loops, HF wrapper
+src/elt_lm/offload/  4-tier store, NvmeAdamW, prefetcher, placement planner
+src/elt_lm/hf/       trust_remote_code bundle (ELTConfig, ELTForCausalLM)
+src/elt_lm/eval/     any-time L-sweep, verifiers, python-exec guard
+src/elt_lm/telemetry.py  thread-safe JSONL writer
+dashboard/           Streamlit app + panels + metrics reader
+configs/             tiny_10M / base_100M / smoke_300M / base_1B / sft_cot / grpo_gsm8k
+scripts/             data DL / clean / tokenize / pipeline / HF export / 1B VRAM smoke
+tests/               105 tests; `uv run pytest -q`
+_docs/               implementation log (YYYY-MM-DD-<slug>-<AI>.md)
 ```
 
 ## Install
 
 ```bash
-uv sync          # Python 3.12 + PyTorch 2.x + transformers + huggingface-hub
-uv run pytest -q # 59 passing
+uv sync                             # core
+uv sync --extra offload_8bit        # + bitsandbytes for paged_adamw_8bit
+uv sync --extra dashboard           # + streamlit / plotly / pynvml / psutil
+uv sync --extra dev                 # + pytest, for running the suite
+uv run pytest -q                    # 105 passing
 ```
 
 ## Roadmap
@@ -162,9 +217,12 @@ uv run pytest -q # 59 passing
 - [x] HuggingFace Hub export (`trust_remote_code=True`)
 - [x] End-to-end pipeline with boot-time auto-resume
 - [x] Offline distillation from Qwen3.5-4B
-- [ ] 10B-token Phase 1 pretrain run (in progress)
+- [x] `base_1B.yaml` fits 12 GB via PagedAdamW8bit (measured peak 7.88 GB)
+- [x] Hypura-style 4-tier NVMe offload (`NvmeAdamW`) + placement planner
+- [x] Streamlit dashboard with 6 live panels + JSONL telemetry
+- [ ] 1 B Phase-1 pretrain run (in progress)
 - [ ] GSM8K / HumanEval / MMLU-STEM / MATH-500 L-sweep results
-- [ ] `elt-lm-base-275m` pushed to HuggingFace Hub
+- [ ] `elt-lm-base-1.5b` pushed to HuggingFace Hub
 
 ## Citation
 

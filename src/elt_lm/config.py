@@ -90,6 +90,15 @@ class GRPOConfig:
 
 
 @dataclass
+class OffloadConfig:
+    """NVMe offload configuration."""
+    enabled: bool = False
+    root: str | None = None   # e.g., "H:/elt_data/offload_nvme"; if None, uses run_dir / "offload_nvme"
+    # Safety: require at least this many free bytes before allocating NVMe state.
+    min_free_gb: float = 20.0
+
+
+@dataclass
 class OptimConfig:
     """Optimizer selection. Phase-B adds 8-bit paged Adam; Phase-C adds NVMe-backed."""
     kind: Literal["adamw", "paged_adamw_8bit", "nvme_adamw"] = "adamw"
@@ -116,6 +125,7 @@ class TrainConfig:
     grpo: GRPOConfig = field(default_factory=GRPOConfig)
     data: DataConfig = field(default_factory=DataConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
+    offload: OffloadConfig = field(default_factory=OffloadConfig)
 
     # Optimizer
     lr: float = 3e-4
@@ -167,6 +177,7 @@ def load_train_config(path: str | Path) -> TrainConfig:
     grpo_raw = raw.pop("grpo", {}) or {}
     data_raw = raw.pop("data", {}) or {}
     optim_raw = raw.pop("optim", {}) or {}
+    offload_raw = raw.pop("offload", {}) or {}
 
     return TrainConfig(
         model=ModelConfig(**model_raw),
@@ -174,5 +185,6 @@ def load_train_config(path: str | Path) -> TrainConfig:
         grpo=GRPOConfig(**grpo_raw),
         data=DataConfig(**data_raw),
         optim=OptimConfig(**optim_raw),
+        offload=OffloadConfig(**offload_raw),
         **raw,
     )

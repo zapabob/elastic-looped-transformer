@@ -12,6 +12,9 @@ data_bin/
 *.bin
 *.pt
 *.safetensors
+*.f32
+offload_nvme/
+logs/
 
 .env
 wandb/

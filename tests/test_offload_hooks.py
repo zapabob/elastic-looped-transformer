@@ -61,11 +61,14 @@ def test_layer_timing_hooks_are_removed_on_exit(tmp_path: Path):
 
 
 def test_install_offload_into_training_returns_nvme_adamw(tmp_path: Path):
+    from elt_lm.config import OffloadConfig
     model = _tiny_model()
     cfg = TrainConfig(model=ModelConfig(
         vocab_size=128, d_model=32, n_unique_layers=3, n_heads=2,
         head_dim=16, d_ff=64, max_seq_len=16, tie_word_embeddings=True,
     ))
+    # Disable the 20 GB free-space guard — test tmp dirs may be on a tight drive.
+    cfg.offload = OffloadConfig(min_free_gb=0.0)
     opt, store = install_offload_into_training(model, cfg=cfg, run_dir=tmp_path)
     from elt_lm.offload.optim_offload import NvmeAdamW
     from elt_lm.offload.tiered_store import TieredParameterStore
@@ -78,6 +81,7 @@ def test_install_offload_into_training_returns_nvme_adamw(tmp_path: Path):
 
 def test_install_offload_end_to_end_step(tmp_path: Path):
     """Backprop through the model then run an NvmeAdamW.step() — no crashes."""
+    from elt_lm.config import OffloadConfig
     torch.manual_seed(0)
     model = _tiny_model().train()
     cfg = TrainConfig(model=ModelConfig(
@@ -85,6 +89,7 @@ def test_install_offload_end_to_end_step(tmp_path: Path):
         head_dim=16, d_ff=64, max_seq_len=16, tie_word_embeddings=True,
         grad_checkpoint=False,
     ))
+    cfg.offload = OffloadConfig(min_free_gb=0.0)
     opt, store = install_offload_into_training(model, cfg=cfg, run_dir=tmp_path)
 
     ids = torch.randint(0, 128, (2, 8), dtype=torch.long)

@@ -42,11 +42,13 @@ def test_unknown_optim_kind_raises():
         configure_optimizer(m, cfg)
 
 
-def test_nvme_adamw_is_not_yet_implemented():
+def test_nvme_adamw_is_routed_out_of_configure_optimizer():
+    """nvme_adamw is built via install_offload_into_training, not
+    configure_optimizer. If someone forgets the special case, fail loud."""
     cfg = _tiny_cfg()
     cfg.optim = OptimConfig(kind="nvme_adamw")
     m = _tiny_model(cfg)
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError, match="install_offload_into_training"):
         configure_optimizer(m, cfg)
 
 

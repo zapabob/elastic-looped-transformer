@@ -25,6 +25,10 @@ count, and anything the next session should know. Append; do not overwrite past 
 - Tests: `tests/test_*.py` — run all with `uv run pytest -q`.
 - Data roots: `H:/elt_data/raw`, `H:/elt_data/clean`, `H:/elt_data/bin`,
   `H:/elt_data/runs` (bulk) and `./runs` (local smoke).
+  As of 2026-04-21 H: has ~62 GB free. Raw JSONL under `H:/elt_data/raw` is
+  safe to delete once `bin/{train,val}.bin` are regenerated. NvmeAdamW
+  optimizer state lands under `cfg.offload.root` (default
+  `<run_dir>/offload_nvme/*.f32`) — budget ~13 GB for the 1B config.
 - Checkpoints: `rolling_{0..keep-1}.pt` round-robin every `rolling_ckpt_interval_sec`,
   `last.pt` hardlink, milestone saves at `step_*.pt` every `save_every`.
 - Resume: `uv run elt-train --config <cfg> --resume <path-to-ckpt>`.
