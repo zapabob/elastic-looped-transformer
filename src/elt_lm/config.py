@@ -90,6 +90,17 @@ class GRPOConfig:
 
 
 @dataclass
+class OptimConfig:
+    """Optimizer selection. Phase-B adds 8-bit paged Adam; Phase-C adds NVMe-backed."""
+    kind: Literal["adamw", "paged_adamw_8bit", "nvme_adamw"] = "adamw"
+    # bitsandbytes.optim.PagedAdamW8bit / PagedAdamW32bit options.
+    # percentile_clipping=100 disables BnB's internal clip (we use grad_clip externally).
+    paged_percentile_clipping: int = 100
+    # Optional: bits (8 or 32) for the paged optimizer. 8 => PagedAdamW8bit.
+    paged_bits: Literal[8, 32] = 8
+
+
+@dataclass
 class DataConfig:
     train_bin: str = "data_bin/train.bin"      # uint32 packed token stream
     val_bin: str | None = "data_bin/val.bin"
@@ -104,6 +115,7 @@ class TrainConfig:
     ilsd: ILSDConfig = field(default_factory=ILSDConfig)
     grpo: GRPOConfig = field(default_factory=GRPOConfig)
     data: DataConfig = field(default_factory=DataConfig)
+    optim: OptimConfig = field(default_factory=OptimConfig)
 
     # Optimizer
     lr: float = 3e-4
@@ -154,11 +166,13 @@ def load_train_config(path: str | Path) -> TrainConfig:
     ilsd_raw = raw.pop("ilsd", {}) or {}
     grpo_raw = raw.pop("grpo", {}) or {}
     data_raw = raw.pop("data", {}) or {}
+    optim_raw = raw.pop("optim", {}) or {}
 
     return TrainConfig(
         model=ModelConfig(**model_raw),
         ilsd=ILSDConfig(**ilsd_raw),
         grpo=GRPOConfig(**grpo_raw),
         data=DataConfig(**data_raw),
+        optim=OptimConfig(**optim_raw),
         **raw,
     )

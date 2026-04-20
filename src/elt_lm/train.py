@@ -44,7 +44,14 @@ def lr_at(step: int, cfg: TrainConfig) -> float:
 
 
 def configure_optimizer(model: ELTLanguageModel, cfg: TrainConfig) -> torch.optim.Optimizer:
-    """AdamW with weight decay on 2D params only (biases / norms excluded)."""
+    """AdamW variants.
+
+    kind=adamw             : stock torch.optim.AdamW (fp32 state on GPU)
+    kind=paged_adamw_8bit  : bitsandbytes PagedAdamW8bit — 8-bit state paged via
+                             CUDA managed memory (spills to host RAM). Large
+                             VRAM savings; acceptable convergence loss for LM.
+    kind=nvme_adamw        : Phase-C; fp32 state memory-mapped on NVMe.
+    """
     decay, no_decay = [], []
     for p in model.parameters():
         if not p.requires_grad:
@@ -54,12 +61,27 @@ def configure_optimizer(model: ELTLanguageModel, cfg: TrainConfig) -> torch.opti
         {"params": decay, "weight_decay": cfg.weight_decay},
         {"params": no_decay, "weight_decay": 0.0},
     ]
-    return torch.optim.AdamW(
-        groups,
-        lr=cfg.lr,
-        betas=(cfg.beta1, cfg.beta2),
-        eps=cfg.eps,
-    )
+    kind = cfg.optim.kind
+    if kind == "adamw":
+        return torch.optim.AdamW(
+            groups, lr=cfg.lr, betas=(cfg.beta1, cfg.beta2), eps=cfg.eps,
+        )
+    if kind == "paged_adamw_8bit":
+        try:
+            import bitsandbytes as bnb
+        except ImportError as e:
+            raise ImportError(
+                "optim.kind=paged_adamw_8bit requires bitsandbytes. "
+                "Install with: uv sync --extra offload_8bit"
+            ) from e
+        cls = bnb.optim.PagedAdamW8bit if cfg.optim.paged_bits == 8 else bnb.optim.PagedAdamW32bit
+        return cls(
+            groups, lr=cfg.lr, betas=(cfg.beta1, cfg.beta2), eps=cfg.eps,
+            percentile_clipping=cfg.optim.paged_percentile_clipping,
+        )
+    if kind == "nvme_adamw":
+        raise NotImplementedError("nvme_adamw is Phase-C; not yet wired in.")
+    raise ValueError(f"unknown optim.kind={kind!r}")
 
 
 def _update_last_hardlink(out_dir: Path, path: Path) -> None:
