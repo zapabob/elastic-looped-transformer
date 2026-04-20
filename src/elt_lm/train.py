@@ -22,6 +22,7 @@ from elt_lm.config import TrainConfig, load_train_config
 from elt_lm.data import PackedTokenDataset
 from elt_lm.ilsd import ILSDLossFn
 from elt_lm.model import ELTLanguageModel
+from elt_lm.telemetry import make_writer
 
 
 def get_dtype(name: str) -> torch.dtype:
@@ -179,6 +180,21 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
         keep=cfg.rolling_ckpt_keep,
     )
 
+    telemetry = make_writer(run_dir)
+    telemetry.emit(
+        "train_config",
+        model_params_total=n_total,
+        model_params_non_embedding=n_non_emb,
+        d_model=cfg.model.d_model,
+        n_unique_layers=cfg.model.n_unique_layers,
+        L_min=cfg.model.L_min,
+        L_max=cfg.model.L_max,
+        micro_batch_size=cfg.micro_batch_size,
+        grad_accum_steps=cfg.grad_accum_steps,
+        dtype=cfg.dtype,
+        total_steps=cfg.total_steps,
+    )
+
     # ---- data -------------------------------------------------------------
     train_ds = PackedTokenDataset(cfg.data.train_bin, seq_len=cfg.data.seq_len)
     train_dl = DataLoader(
@@ -228,18 +244,35 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
                     f"L_GT_t {out.l_gt_teacher.item():.3f} | L_GT_s {out.l_gt_student.item():.3f} | "
                     f"L_dist {out.l_dist.item():.3f} | {tps:.0f} tok/s"
                 )
+                telemetry.emit(
+                    "train_step",
+                    step=global_step,
+                    lr=lr,
+                    loss=avg,
+                    l_gt_teacher=out.l_gt_teacher.item(),
+                    l_gt_student=out.l_gt_student.item(),
+                    l_dist=out.l_dist.item(),
+                    L_int=out.L_int,
+                    lambda_value=out.lambda_value,
+                    tokens_per_sec=tps,
+                )
                 accum_loss = 0.0
 
             if cfg.save_every and global_step > 0 and global_step % cfg.save_every == 0:
                 save_checkpoint(model, opt, cfg, global_step, run_dir)
+                telemetry.emit("checkpoint", kind="milestone", step=global_step)
 
-            rolling.maybe_save(model, opt, cfg, global_step)
+            if rolling.maybe_save(model, opt, cfg, global_step):
+                telemetry.emit("checkpoint", kind="rolling", step=global_step,
+                               slot=(rolling.next_slot - 1) % rolling.keep)
 
             global_step += 1
             if global_step >= cfg.total_steps:
                 break
 
     save_checkpoint(model, opt, cfg, global_step, run_dir)
+    telemetry.emit("checkpoint", kind="final", step=global_step)
+    telemetry.close()
     print(f"done in {(time.time()-t0)/60:.1f} min")
 
 

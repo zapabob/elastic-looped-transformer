@@ -35,6 +35,7 @@ from torch import Tensor
 from elt_lm.config import TrainConfig, load_train_config
 from elt_lm.grpo import GRPOOutput, group_advantage, grpo_loss
 from elt_lm.model import ELTLanguageModel
+from elt_lm.telemetry import make_writer
 from elt_lm.train import (
     RollingCheckpointer,
     configure_optimizer,
@@ -205,6 +206,11 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
         keep=cfg.rolling_ckpt_keep,
     )
 
+    telemetry = make_writer(run_dir)
+    telemetry.emit("grpo_config", group_size=cfg.grpo.group_size,
+                   rollout_L=cfg.grpo.rollout_L, kl_beta=cfg.grpo.kl_beta,
+                   clip_eps=cfg.grpo.clip_eps, task=cfg.grpo.task)
+
     pad_id = int(tok.pad_token_id)
     eos_id = int(tok.eos_token_id)
 
@@ -294,13 +300,31 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
                 f"corr {r_correct.mean().item():.2f} fmt {r_format.mean().item():.2f} | "
                 f"{elapsed:.0f}s"
             )
+            telemetry.emit(
+                "grpo_step",
+                step=step, lr=lr,
+                loss=out.loss.item(),
+                policy_loss=out.policy_loss.item(),
+                kl=out.kl.item(),
+                clip_frac=out.clip_frac.item(),
+                adv_abs_mean=out.adv_abs_mean.item(),
+                reward_mean=rewards.mean().item(),
+                reward_std=rewards.std(unbiased=False).item(),
+                correct_rate=r_correct.mean().item(),
+                format_rate=r_format.mean().item(),
+            )
 
         if cfg.save_every and step > 0 and step % cfg.save_every == 0:
             save_checkpoint(model, opt, cfg, step, run_dir)
+            telemetry.emit("checkpoint", kind="milestone", step=step)
 
-        rolling.maybe_save(model, opt, cfg, step)
+        if rolling.maybe_save(model, opt, cfg, step):
+            telemetry.emit("checkpoint", kind="rolling", step=step,
+                           slot=(rolling.next_slot - 1) % rolling.keep)
 
     save_checkpoint(model, opt, cfg, cfg.total_steps, run_dir)
+    telemetry.emit("checkpoint", kind="final", step=cfg.total_steps)
+    telemetry.close()
     print(f"grpo done in {(time.time()-t0)/60:.1f} min")
 
 

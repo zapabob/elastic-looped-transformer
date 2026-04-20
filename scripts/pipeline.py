@@ -23,6 +23,7 @@ Manual run (any user):
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -35,6 +36,7 @@ from typing import Callable
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = Path("H:/elt_data/pipeline_state")
 DISTILL_OUT = Path("H:/elt_data/distill/teacher_sft.jsonl")
+TELEMETRY_PATH = STATE_DIR / "pipeline.jsonl"
 
 
 def _sh(cmd: list[str] | str, check: bool = True) -> int:
@@ -221,25 +223,44 @@ def main() -> None:
     if args.dry_run:
         return
 
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    def emit(event: str, **fields: object) -> None:
+        try:
+            with open(TELEMETRY_PATH, "a", encoding="utf-8", buffering=1) as f:
+                f.write(json.dumps({"ts": time.time(), "event": event, **fields}) + "\n")
+        except OSError:
+            pass
+
+    emit("pipeline_start", plan=[s.name for s in plan])
+
     all_ok = True
     for s in plan:
         if s.is_done():
             print(f"  skip: {s.name}")
+            emit("pipeline_stage", name=s.name, status="skipped")
             continue
         print(f"\n========== {s.name} ==========")
+        emit("pipeline_stage", name=s.name, status="start")
         t0 = time.time()
         try:
             s.run()
         except SystemExit as e:
             print(f"  stage {s.name} aborted: {e}")
+            emit("pipeline_stage", name=s.name, status="aborted",
+                 elapsed_sec=time.time() - t0, error=str(e))
             all_ok = False
             break
         except Exception as e:
             print(f"  stage {s.name} crashed: {e}")
+            emit("pipeline_stage", name=s.name, status="crashed",
+                 elapsed_sec=time.time() - t0, error=str(e))
             all_ok = False
             break
         s.mark_done()
-        print(f"  {s.name} done in {(time.time()-t0)/60:.1f} min")
+        elapsed = time.time() - t0
+        emit("pipeline_stage", name=s.name, status="done", elapsed_sec=elapsed)
+        print(f"  {s.name} done in {elapsed/60:.1f} min")
 
     if all_ok and plan and plan[-1] is STAGES[-1] and not args.no_unregister:
         print("\n  all stages complete — removing boot registration")
