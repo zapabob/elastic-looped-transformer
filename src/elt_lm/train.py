@@ -80,7 +80,14 @@ def configure_optimizer(model: ELTLanguageModel, cfg: TrainConfig) -> torch.opti
             percentile_clipping=cfg.optim.paged_percentile_clipping,
         )
     if kind == "nvme_adamw":
-        raise NotImplementedError("nvme_adamw is Phase-C; not yet wired in.")
+        # Handled out-of-band by install_offload_into_training, which needs
+        # the run_dir context that configure_optimizer doesn't have. We raise
+        # here so callers that forget to special-case this kind fail loudly.
+        raise RuntimeError(
+            "optim.kind=nvme_adamw must be built via "
+            "elt_lm.offload.hooks.install_offload_into_training(model, cfg, run_dir). "
+            "The train.train() loop dispatches this automatically."
+        )
     raise ValueError(f"unknown optim.kind={kind!r}")
 
 
@@ -189,7 +196,14 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
     n_non_emb = model.num_parameters(non_embedding=True)
     print(f"model params: {n_total/1e6:.1f}M total, {n_non_emb/1e6:.1f}M non-embedding")
 
-    opt = configure_optimizer(model, cfg)
+    offload_store = None
+    if cfg.optim.kind == "nvme_adamw":
+        from elt_lm.offload.hooks import install_offload_into_training
+        opt, offload_store = install_offload_into_training(
+            model, cfg=cfg, run_dir=run_dir,
+        )
+    else:
+        opt = configure_optimizer(model, cfg)
     loss_fn = ILSDLossFn(cfg.model, cfg.ilsd, seed=cfg.seed)
 
     resume_step = 0
@@ -294,6 +308,8 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
 
     save_checkpoint(model, opt, cfg, global_step, run_dir)
     telemetry.emit("checkpoint", kind="final", step=global_step)
+    if offload_store is not None:
+        offload_store.flush()
     telemetry.close()
     print(f"done in {(time.time()-t0)/60:.1f} min")
 

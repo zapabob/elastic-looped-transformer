@@ -1,0 +1,66 @@
+# 300M-class smoke config for NvmeAdamW end-to-end validation.
+# Derived from base_1B.yaml but sized so the NVMe state shards (~3.7 GB)
+# comfortably fit the 24 GB free on H:.
+#
+# Non-emb param budget:
+#   per-layer = 4 * 1024^2 + 3 * 1024 * 2816 + 2*1024 ≈ 12.8 M
+#   16 layers -> 205 M non-emb
+#   fp32 state on NVMe = 205 M * 12 bytes = 2.5 GB (fits 24 GB free)
+
+model:
+  vocab_size: 248320
+  d_model: 1024
+  n_unique_layers: 16
+  n_heads: 16
+  head_dim: 64
+  d_ff: 2816
+  max_seq_len: 1024
+  rope_theta: 10000.0
+  tie_word_embeddings: true
+  L_min: 1
+  L_max: 4
+  grad_checkpoint: true
+
+ilsd:
+  enabled: false
+  lambda_init: 0.0
+  lambda_final: 0.0
+  lambda_anneal_steps: 1
+  warmup_steps: 0
+  strict_student_below_teacher: false
+
+data:
+  train_bin: H:/elt_data/bin/train.bin
+  val_bin: H:/elt_data/bin/val.bin
+  seq_len: 512
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+optim:
+  kind: nvme_adamw
+
+lr: 2.0e-4
+min_lr: 2.0e-5
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+eps: 1.0e-8
+grad_clip: 1.0
+
+warmup_steps: 100
+total_steps: 10
+lr_schedule: cosine
+
+micro_batch_size: 1
+grad_accum_steps: 1
+
+dtype: bf16
+
+log_every: 1
+eval_every: 10
+save_every: 10
+run_dir: H:/elt_data/runs/smoke_300M_nvme
+
+rolling_ckpt_interval_sec: 600
+rolling_ckpt_keep: 2
+
+seed: 42
