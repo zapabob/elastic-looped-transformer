@@ -1,0 +1,3 @@
+sources:
+  - path: H:/elt_data/posttrain/raw/reasoning.jsonl
+    type: flat

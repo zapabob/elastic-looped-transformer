@@ -1,0 +1,61 @@
+# Dense post-training SFT focused on reasoning traces and math-style supervision.
+
+model:
+  vocab_size: 248320
+  d_model: 1792
+  n_unique_layers: 28
+  n_heads: 28
+  head_dim: 64
+  d_ff: 4864
+  max_seq_len: 2048
+  rope_theta: 10000.0
+  tie_word_embeddings: true
+  L_min: 1
+  L_max: 4
+  grad_checkpoint: true
+
+ilsd:
+  enabled: true
+  lambda_init: 0.5
+  lambda_final: 0.0
+  lambda_anneal_steps: 8000
+  warmup_steps: 200
+  strict_student_below_teacher: true
+
+data:
+  train_bin: H:/elt_data/posttrain/bin/reasoning/train.bin
+  val_bin: H:/elt_data/posttrain/bin/reasoning/val.bin
+  seq_len: 2048
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+optim:
+  kind: paged_adamw_8bit
+  paged_bits: 8
+  paged_percentile_clipping: 100
+
+lr: 8.0e-5
+min_lr: 8.0e-6
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+eps: 1.0e-8
+grad_clip: 1.0
+
+warmup_steps: 200
+total_steps: 4000
+lr_schedule: cosine
+
+micro_batch_size: 1
+grad_accum_steps: 32
+
+dtype: bf16
+
+log_every: 10
+eval_every: 250
+save_every: 500
+run_dir: H:/elt_data/runs/posttrain_reasoning_sft
+
+rolling_ckpt_interval_sec: 300
+rolling_ckpt_keep: 3
+
+seed: 46

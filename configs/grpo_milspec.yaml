@@ -1,0 +1,65 @@
+# Hybrid KL-regularized GRPO using verifier-dominant rewards plus a reward model.
+
+model:
+  vocab_size: 248320
+  d_model: 1792
+  n_unique_layers: 28
+  n_heads: 28
+  head_dim: 64
+  d_ff: 4864
+  max_seq_len: 2048
+  tie_word_embeddings: true
+  L_min: 1
+  L_max: 4
+  grad_checkpoint: true
+
+grpo:
+  enabled: true
+  init_ckpt: H:/elt_data/runs/posttrain_reasoning_sft/last.pt
+  prompts_file: H:/elt_data/posttrain/grpo/milspec_prompts.jsonl
+  task: python_exec
+  group_size: 4
+  rollout_temperature: 1.0
+  rollout_top_k: 64
+  rollout_max_new_tokens: 192
+  rollout_L: 4
+  clip_eps: 0.2
+  kl_beta: 0.05
+  mu_steps: 1
+  reward_model_ckpt: H:/elt_data/runs/reward_model/last.pt
+  reward_alpha: 0.3
+  verifier_beta: 0.7
+  prompt_budget: 10000
+
+data:
+  train_bin: H:/elt_data/bin/train.bin
+  val_bin: H:/elt_data/bin/val.bin
+  seq_len: 2048
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+lr: 1.0e-6
+min_lr: 1.0e-7
+weight_decay: 0.0
+beta1: 0.9
+beta2: 0.99
+eps: 1.0e-8
+grad_clip: 1.0
+
+warmup_steps: 50
+total_steps: 10000
+lr_schedule: cosine
+
+micro_batch_size: 1
+grad_accum_steps: 1
+
+dtype: bf16
+
+log_every: 1
+eval_every: 200
+save_every: 200
+run_dir: H:/elt_data/runs/grpo_milspec
+
+rolling_ckpt_interval_sec: 300
+rolling_ckpt_keep: 3
+
+seed: 48

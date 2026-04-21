@@ -52,6 +52,7 @@ class ELTConfig(PretrainedConfig):
         self.max_seq_len = max_seq_len
         self.rope_theta = rope_theta
         self.rms_norm_eps = rms_norm_eps
+        self.tie_word_embeddings = tie_word_embeddings
         self.dropout = dropout
         self.L_min = L_min
         self.L_max = L_max
@@ -63,7 +64,7 @@ class ELTConfig(PretrainedConfig):
         # `max_position_embeddings` is consulted by HF generation length checks.
         self.max_position_embeddings = max_seq_len
 
-        super().__init__(tie_word_embeddings=tie_word_embeddings, **kwargs)
+        super().__init__(**kwargs)
 
     @classmethod
     def from_model_config(cls, mc: Any, L_default: int | None = None) -> "ELTConfig":

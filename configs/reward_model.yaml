@@ -1,0 +1,59 @@
+# Pairwise reward-model training on curated + synthetic preference pairs.
+# Build the merged preference file with:
+#   uv run python scripts/merge_preference_pairs.py --out H:/elt_data/posttrain/raw/preference_pairs_merged.jsonl \
+#     --inputs H:/elt_data/posttrain/raw/preference_pairs.jsonl H:/elt_data/posttrain/raw/preference_pairs_synthetic.jsonl
+
+model:
+  vocab_size: 248320
+  d_model: 1792
+  n_unique_layers: 28
+  n_heads: 28
+  head_dim: 64
+  d_ff: 4864
+  max_seq_len: 2048
+  rope_theta: 10000.0
+  tie_word_embeddings: true
+  L_min: 1
+  L_max: 4
+  grad_checkpoint: false
+
+reward_model:
+  enabled: true
+  init_ckpt: H:/elt_data/runs/posttrain_reasoning_sft/last.pt
+  preferences_file: H:/elt_data/posttrain/raw/preference_pairs_merged.jsonl
+  train_L: 4
+  freeze_backbone: false
+  margin: 0.0
+
+data:
+  train_bin: H:/elt_data/bin/train.bin
+  val_bin: H:/elt_data/bin/val.bin
+  seq_len: 1024
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+lr: 1.0e-5
+min_lr: 1.0e-6
+weight_decay: 0.01
+beta1: 0.9
+beta2: 0.95
+eps: 1.0e-8
+grad_clip: 1.0
+
+warmup_steps: 50
+total_steps: 2000
+lr_schedule: cosine
+
+micro_batch_size: 2
+grad_accum_steps: 1
+
+dtype: bf16
+
+log_every: 10
+eval_every: 0
+save_every: 0
+run_dir: H:/elt_data/runs/reward_model
+
+rolling_ckpt_interval_sec: 300
+rolling_ckpt_keep: 3
+
+seed: 47

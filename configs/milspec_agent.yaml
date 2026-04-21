@@ -1,0 +1,14 @@
+L: 4
+temperature: 0.0
+top_k: 1
+require_determinism: true
+
+sandbox:
+  timeout_s: 3.0
+
+audit:
+  path: H:/elt_data/runs/milspec_agent/audit.jsonl
+
+sbom:
+  enabled: true
+  path: H:/elt_data/runs/milspec_agent/sbom.json

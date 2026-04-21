@@ -1,12 +1,4 @@
-"""Any-Time sweep: compute validation perplexity at each L ∈ [L_min, L_max].
-
-This is the headline Any-Time capability of ELT/ILSD — after one training run,
-quality should degrade gracefully as L shrinks, all the way from L_max to L_min.
-
-Usage:
-    uv run elt-anytime --ckpt runs/tiny_10M/last.pt --val-bin data_bin/val.bin \
-                       --seq-len 512 --batch-size 4 --max-batches 50
-"""
+"""Any-time sweep for perplexity plus optional benchmark runs at each L."""
 
 from __future__ import annotations
 
@@ -22,6 +14,7 @@ from torch.utils.data import DataLoader
 
 from elt_lm.config import TrainConfig
 from elt_lm.data import PackedTokenDataset
+from elt_lm.eval.benchmarks import evaluate_benchmark, load_benchmark_manifest
 from elt_lm.model import ELTLanguageModel
 from elt_lm.telemetry import make_writer
 
@@ -43,10 +36,7 @@ def eval_at_L(
     device: torch.device,
     max_batches: int,
 ) -> dict:
-    """Return a dict of metrics at the given loop count.
-
-    Keys: nll, ppl, tokens_per_sec, latency_ms_per_batch, total_tokens, batches.
-    """
+    """Return held-out perplexity and throughput metrics at the given L."""
     total_nll = 0.0
     total_tok = 0
     seen = 0
@@ -94,43 +84,109 @@ def run(args: argparse.Namespace) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, cfg = load_model(args.ckpt, device)
 
-    ds = PackedTokenDataset(args.val_bin, seq_len=args.seq_len or cfg.data.seq_len)
-    dl = DataLoader(ds, batch_size=args.batch_size, shuffle=False, drop_last=True)
+    dl = None
+    if args.val_bin:
+        ds = PackedTokenDataset(args.val_bin, seq_len=args.seq_len or cfg.data.seq_len)
+        dl = DataLoader(ds, batch_size=args.batch_size, shuffle=False, drop_last=True)
 
-    # `--run-dir` (or inferred from ckpt parent) controls where inference_sweep
-    # events are emitted — the dashboard's Inference panel tails this file.
+    benchmark_specs = (
+        load_benchmark_manifest(args.benchmark_manifest)
+        if args.benchmark_manifest else []
+    )
+    if dl is None and not benchmark_specs:
+        raise SystemExit("anytime_sweep needs --val-bin, --benchmark-manifest, or both")
+
+    tok = None
+    if benchmark_specs:
+        from transformers import AutoTokenizer
+
+        tok = AutoTokenizer.from_pretrained(cfg.data.tokenizer_path, use_fast=True)
+        if tok.pad_token_id is None:
+            tok.pad_token = tok.eos_token
+
     run_dir = Path(args.run_dir) if args.run_dir else Path(args.ckpt).parent
     telemetry = make_writer(run_dir)
     try:
         L_range = range(cfg.model.L_min, cfg.model.L_max + 1)
-        rows: list[dict[str, float | int]] = []
+        rows: list[dict[str, float | int | str]] = []
         for L in L_range:
-            stats = eval_at_L(model, dl, L, device, args.max_batches)
-            approx_flops = L * cfg.model.n_unique_layers         # relative proxy
-            print(
-                f"L={L}  NLL={stats['nll']:.4f}  PPL={stats['ppl']:.3f}  "
-                f"tok/s={stats['tokens_per_sec']:.0f}  "
-                f"batch-latency={stats['latency_ms_per_batch']:.1f}ms  "
-                f"relFLOPs={approx_flops}"
-            )
-            telemetry.emit(
-                "inference_sweep",
-                L=L,
-                rel_flops=approx_flops,
-                nll=stats["nll"],
-                ppl=stats["ppl"],
-                tokens_per_sec=stats["tokens_per_sec"],
-                latency_ms=stats["latency_ms_per_batch"],
-                total_tokens=stats["total_tokens"],
-                batches=stats["batches"],
-                ckpt=str(args.ckpt),
-            )
-            rows.append({
-                "L": L, "nll": stats["nll"], "ppl": stats["ppl"],
-                "tokens_per_sec": stats["tokens_per_sec"],
-                "latency_ms": stats["latency_ms_per_batch"],
-                "rel_flops": approx_flops,
-            })
+            approx_flops = L * cfg.model.n_unique_layers
+            if dl is not None:
+                stats = eval_at_L(model, dl, L, device, args.max_batches)
+                print(
+                    f"L={L}  NLL={stats['nll']:.4f}  PPL={stats['ppl']:.3f}  "
+                    f"tok/s={stats['tokens_per_sec']:.0f}  "
+                    f"batch-latency={stats['latency_ms_per_batch']:.1f}ms  "
+                    f"relFLOPs={approx_flops}"
+                )
+                telemetry.emit(
+                    "inference_sweep",
+                    L=L,
+                    rel_flops=approx_flops,
+                    nll=stats["nll"],
+                    ppl=stats["ppl"],
+                    tokens_per_sec=stats["tokens_per_sec"],
+                    latency_ms=stats["latency_ms_per_batch"],
+                    total_tokens=stats["total_tokens"],
+                    batches=stats["batches"],
+                    ckpt=str(args.ckpt),
+                )
+                rows.append({
+                    "kind": "perplexity",
+                    "benchmark": "",
+                    "task": "",
+                    "L": L,
+                    "nll": stats["nll"],
+                    "ppl": stats["ppl"],
+                    "score": "",
+                    "tokens_per_sec": stats["tokens_per_sec"],
+                    "latency_ms": stats["latency_ms_per_batch"],
+                    "rel_flops": approx_flops,
+                    "count": stats["batches"],
+                })
+
+            for spec in benchmark_specs:
+                assert tok is not None
+                result = evaluate_benchmark(
+                    model=model,
+                    tokenizer=tok,
+                    spec=spec,
+                    L=L,
+                    device=device,
+                    max_new_tokens=args.bench_max_new_tokens,
+                    temperature=args.bench_temperature,
+                    top_k=args.bench_top_k,
+                )
+                print(
+                    f"L={L}  benchmark={result.benchmark}  score={result.accuracy:.4f}  "
+                    f"latency={result.latency_ms_per_case:.1f}ms/case  "
+                    f"tok/s={result.tokens_per_sec:.0f}"
+                )
+                telemetry.emit(
+                    "benchmark_eval",
+                    benchmark=result.benchmark,
+                    task=result.task,
+                    L=L,
+                    score=result.accuracy,
+                    correct=result.correct,
+                    total=result.total,
+                    latency_ms=result.latency_ms_per_case,
+                    tokens_per_sec=result.tokens_per_sec,
+                    ckpt=str(args.ckpt),
+                )
+                rows.append({
+                    "kind": "benchmark",
+                    "benchmark": result.benchmark,
+                    "task": result.task,
+                    "L": L,
+                    "nll": "",
+                    "ppl": "",
+                    "score": result.accuracy,
+                    "tokens_per_sec": result.tokens_per_sec,
+                    "latency_ms": result.latency_ms_per_case,
+                    "rel_flops": approx_flops,
+                    "count": result.total,
+                })
 
         out_csv = Path(args.out_csv) if args.out_csv else None
         if out_csv:
@@ -138,8 +194,19 @@ def run(args: argparse.Namespace) -> None:
             with open(out_csv, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(
                     f,
-                    fieldnames=["L", "nll", "ppl", "tokens_per_sec",
-                                "latency_ms", "rel_flops"],
+                    fieldnames=[
+                        "kind",
+                        "benchmark",
+                        "task",
+                        "L",
+                        "nll",
+                        "ppl",
+                        "score",
+                        "tokens_per_sec",
+                        "latency_ms",
+                        "rel_flops",
+                        "count",
+                    ],
                 )
                 writer.writeheader()
                 for row in rows:
@@ -152,14 +219,21 @@ def run(args: argparse.Namespace) -> None:
 def cli() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt", required=True)
-    p.add_argument("--val-bin", required=True)
+    p.add_argument("--val-bin", default="")
+    p.add_argument("--benchmark-manifest", type=str, default="")
     p.add_argument("--seq-len", type=int, default=0)
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--max-batches", type=int, default=50)
+    p.add_argument("--bench-max-new-tokens", type=int, default=128)
+    p.add_argument("--bench-temperature", type=float, default=0.0)
+    p.add_argument("--bench-top-k", type=int, default=1)
     p.add_argument("--out-csv", type=str, default="")
-    p.add_argument("--run-dir", type=str, default="",
-                   help="directory to write inference_sweep telemetry into. "
-                        "Defaults to the checkpoint's parent directory.")
+    p.add_argument(
+        "--run-dir",
+        type=str,
+        default="",
+        help="directory to write telemetry into. Defaults to the checkpoint's parent directory.",
+    )
     args = p.parse_args()
     run(args)
 

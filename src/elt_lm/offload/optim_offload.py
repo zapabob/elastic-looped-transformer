@@ -110,6 +110,7 @@ class NvmeAdamW(Optimizer):
                 bias_correction2 = 1.0 - beta2 ** t
 
                 if is_tiered:
+                    assert name is not None
                     self._step_tiered(p, grad, name, lr, beta1, beta2, eps, wd,
                                       bias_correction1, bias_correction2)
                 else:

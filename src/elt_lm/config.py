@@ -87,6 +87,22 @@ class GRPOConfig:
     mu_steps: int = 1
     # Verifier task (see TASK_VERIFIERS in verifiers.py).
     task: str = "gsm8k"
+    # Optional reward-model checkpoint and reward mixing weights.
+    reward_model_ckpt: str = ""
+    reward_alpha: float = 0.3
+    verifier_beta: float = 0.7
+    prompt_budget: int = 10_000
+
+
+@dataclass
+class RewardModelConfig:
+    """Pairwise preference training configuration."""
+    enabled: bool = False
+    init_ckpt: str = ""
+    preferences_file: str = ""
+    train_L: int = 4
+    freeze_backbone: bool = False
+    margin: float = 0.0
 
 
 @dataclass
@@ -123,6 +139,7 @@ class TrainConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     ilsd: ILSDConfig = field(default_factory=ILSDConfig)
     grpo: GRPOConfig = field(default_factory=GRPOConfig)
+    reward_model: RewardModelConfig = field(default_factory=RewardModelConfig)
     data: DataConfig = field(default_factory=DataConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
     offload: OffloadConfig = field(default_factory=OffloadConfig)
@@ -175,6 +192,7 @@ def load_train_config(path: str | Path) -> TrainConfig:
     model_raw = raw.pop("model", {}) or {}
     ilsd_raw = raw.pop("ilsd", {}) or {}
     grpo_raw = raw.pop("grpo", {}) or {}
+    reward_model_raw = raw.pop("reward_model", {}) or {}
     data_raw = raw.pop("data", {}) or {}
     optim_raw = raw.pop("optim", {}) or {}
     offload_raw = raw.pop("offload", {}) or {}
@@ -183,6 +201,7 @@ def load_train_config(path: str | Path) -> TrainConfig:
         model=ModelConfig(**model_raw),
         ilsd=ILSDConfig(**ilsd_raw),
         grpo=GRPOConfig(**grpo_raw),
+        reward_model=RewardModelConfig(**reward_model_raw),
         data=DataConfig(**data_raw),
         optim=OptimConfig(**optim_raw),
         offload=OffloadConfig(**offload_raw),

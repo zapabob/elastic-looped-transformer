@@ -1,0 +1,88 @@
+buckets:
+  - name: code
+    mode: sft
+    output_path: posttrain/raw/code.jsonl
+    sources:
+      - name: magicoder_oss
+        kind: hf
+        dataset: ise-uiuc/Magicoder-OSS-Instruct-75K
+        prompt_field: problem
+        response_field: solution
+        metadata_fields: [lang]
+        limit: 75000
+      - name: magicoder_evol
+        kind: hf
+        dataset: ise-uiuc/Magicoder-Evol-Instruct-110K
+        prompt_field: instruction
+        response_field: response
+        limit: 110000
+      - name: codefeedback_filtered
+        kind: hf
+        dataset: m-a-p/CodeFeedback-Filtered-Instruction
+        prompt_field: query
+        response_field: answer
+        metadata_fields: [lang, resource]
+        limit: 157000
+
+  - name: tool_call
+    mode: sft
+    output_path: posttrain/raw/tool_call.jsonl
+    sources:
+      - name: glaive_function_calling
+        kind: hf
+        dataset: glaiveai/glaive-function-calling-v2
+        text_template: "{system}\n\n{chat}"
+        limit: 113000
+      - name: hermes_function_calling
+        kind: hf
+        dataset: NousResearch/hermes-function-calling-v1
+        text_template: "{tools}\n\n{conversations}"
+        metadata_fields: [category, subcategory, task]
+        limit: 15000
+
+  - name: reasoning
+    mode: sft
+    output_path: posttrain/raw/reasoning.jsonl
+    sources:
+      - name: metamathqa
+        kind: hf
+        dataset: meta-math/MetaMathQA
+        prompt_field: query
+        response_field: response
+        limit: 395000
+      - name: gsm8k_train
+        kind: hf
+        dataset: openai/gsm8k
+        config: main
+        prompt_field: question
+        response_field: answer
+        limit: 7500
+
+  - name: security_style
+    mode: sft
+    output_path: posttrain/raw/security_style.jsonl
+    sources:
+      - name: codealpaca
+        kind: hf
+        dataset: sahil2801/CodeAlpaca-20k
+        prompt_template: "{instruction}\n\n{input}"
+        response_field: output
+        limit: 20000
+      - name: local_security_seed
+        kind: jsonl
+        path: scripts/posttrain_security_style_seed.jsonl
+        prompt_field: prompt
+        response_field: response
+
+  - name: preference_pairs
+    mode: preference
+    output_path: posttrain/raw/preference_pairs.jsonl
+    sources:
+      - name: ultrafeedback_binarized
+        kind: hf
+        dataset: argilla/ultrafeedback-binarized-preferences-cleaned
+        prompt_field: prompt
+        chosen_field: chosen
+        rejected_field: rejected
+        metadata_fields: [source, chosen-model, rejected-model]
+        limit: 64000

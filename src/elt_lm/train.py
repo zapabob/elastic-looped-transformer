@@ -74,7 +74,8 @@ def configure_optimizer(model: ELTLanguageModel, cfg: TrainConfig) -> torch.opti
                 "optim.kind=paged_adamw_8bit requires bitsandbytes. "
                 "Install with: uv sync --extra offload_8bit"
             ) from e
-        cls = bnb.optim.PagedAdamW8bit if cfg.optim.paged_bits == 8 else bnb.optim.PagedAdamW32bit
+        cls_name = "PagedAdamW8bit" if cfg.optim.paged_bits == 8 else "PagedAdamW32bit"
+        cls = getattr(bnb.optim, cls_name)
         return cls(
             groups, lr=cfg.lr, betas=(cfg.beta1, cfg.beta2), eps=cfg.eps,
             percentile_clipping=cfg.optim.paged_percentile_clipping,

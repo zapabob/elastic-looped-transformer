@@ -45,10 +45,17 @@ dashboard = [
 offload_8bit = [
     "bitsandbytes>=0.43.0",
 ]
+posttrain = [
+    "mypy>=1.11.0",
+    "ruff>=0.6.0",
+    "bandit>=1.7.9",
+]
 
 [project.scripts]
 elt-train = "elt_lm.train:cli"
 elt-train-grpo = "elt_lm.train_grpo:cli"
+elt-train-reward = "elt_lm.train_reward_model:cli"
+elt-gguf-distill = "elt_lm.gguf_distill:cli"
 elt-infer = "elt_lm.infer:cli"
 elt-tokenize = "elt_lm.tokenize_data:cli"
 elt-anytime = "elt_lm.eval.anytime_sweep:cli"

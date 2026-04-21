@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import torch
@@ -108,5 +109,5 @@ def test_generate_accepts_L(L: int) -> None:
     model = ELTForCausalLM(cfg).eval()
     ids = torch.randint(0, cfg.vocab_size, (1, 4))
     # Greedy + short generation to keep this fast; we only check it doesn't blow up.
-    out = model.generate(ids, max_new_tokens=3, do_sample=False, L=L)
+    out = cast(Any, model).generate(ids, max_new_tokens=3, do_sample=False, L=L)
     assert out.shape[1] >= ids.shape[1]
