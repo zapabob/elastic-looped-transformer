@@ -1,0 +1,66 @@
+teacher:
+  name: qwen3.5-9b-uncensored-hauhaucs-aggressive-q8_0-gguf
+  server_bin: llama-server.exe
+  model_path: C:/Users/downl/Desktop/EasyNovelAssistant/EasyNovelAssistant/KoboldCpp/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf
+  use_mmproj: false
+  host: 127.0.0.1
+  port: 8092
+  ctx_size: 4096
+  n_gpu_layers: 40
+  threads: 8
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 384
+  timeout_sec: 600
+
+pipeline:
+  output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_math
+  repo_id: ""
+  private: true
+  repo_type: dataset
+  samples_per_task: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
+  student_ckpt: ""
+  benchmark_manifest: ""
+  benchmark_out: student_eval.csv
+
+lane: math
+
+tasks:
+  - name: algebra_reasoning
+    description: solve algebra and equation-manipulation problems with exact answers
+    target_kind: exact_math
+    tags: [algebra, equations]
+    variants:
+      - linear equations with fractions or parentheses
+      - systems of two equations in two variables
+      - polynomial factorization or roots
+      - simplify algebraic expressions to an exact value
+  - name: number_theory
+    description: solve number theory problems requiring divisibility or modular reasoning
+    target_kind: exact_math
+    tags: [number_theory, modular_arithmetic]
+    variants:
+      - greatest common divisor or least common multiple
+      - remainder and modular arithmetic questions
+      - divisibility arguments with small integers
+      - counting factors or prime decompositions
+  - name: combinatorics_probability
+    description: answer counting and probability questions with exact values
+    target_kind: exact_math
+    tags: [combinatorics, probability]
+    variants:
+      - permutations or combinations of small sets
+      - probability of compound events
+      - counting arrangements under simple constraints
+      - expected-value style questions with exact fractions
+  - name: geometry_and_sequences
+    description: solve geometry, arithmetic sequence, or basic linear algebra questions
+    target_kind: exact_math
+    tags: [geometry, sequences]
+    variants:
+      - area, perimeter, or angle relationships
+      - arithmetic or geometric sequence terms
+      - simple vector or matrix computations
+      - coordinate geometry with exact answers

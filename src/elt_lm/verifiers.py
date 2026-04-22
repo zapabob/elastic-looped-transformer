@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from elt_lm.agent.sandbox import run_python_code, run_python_module
 
@@ -17,6 +18,10 @@ _GSM8K_ANS = re.compile(r"####\s*(-?\d+(?:\.\d+)?)")
 _TAG_BLOCK = re.compile(
     r"<think>(?P<think>.*?)</think>\s*<answer>(?P<answer>.*?)</answer>",
     re.DOTALL,
+)
+_REFUSAL_RE = re.compile(
+    r"\b(?:i\s+(?:can'?t|cannot|won'?t)\s+help|sorry[, ]+i\s+(?:can'?t|cannot)|i(?:'| a)?m sorry)\b",
+    re.IGNORECASE,
 )
 
 
@@ -59,6 +64,33 @@ def format_score(response: str) -> tuple[float, str]:
     return 1.0, answer
 
 
+def _unwrap_code_or_json_block(response: str) -> str:
+    m = re.search(r"```(?:python|py|json)?\s*\n?(.*?)```", response, re.DOTALL | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return response.strip()
+
+
+def canonical_task_answer(task: str, response: str) -> tuple[float, str]:
+    if task in {"gsm8k", "exact_match", "exact_math", "mcq_reasoning"}:
+        fmt, answer = format_score(response)
+        if fmt > 0:
+            return fmt, answer
+        stripped = response.strip()
+        return (1.0 if stripped else 0.0, stripped)
+    if task == "python_exec":
+        fmt, answer = format_score(response)
+        candidate = answer if fmt > 0 else response
+        unwrapped = _unwrap_code_or_json_block(candidate)
+        return (1.0 if unwrapped else 0.0, unwrapped)
+    if task == "json_match":
+        fmt, answer = format_score(response)
+        candidate = answer if fmt > 0 else response
+        unwrapped = _unwrap_code_or_json_block(candidate)
+        return (1.0 if unwrapped else 0.0, unwrapped)
+    return format_score(response)
+
+
 def _normalize_numeric(s: str) -> str | None:
     s = s.strip().replace(",", "").rstrip(".")
     nums = re.findall(r"-?\d+(?:\.\d+)?", s)
@@ -81,6 +113,45 @@ def gsm8k_correctness(answer_text: str, reference: str) -> float:
 
 def exact_match_correctness(answer_text: str, reference: str) -> float:
     return 1.0 if answer_text.strip().lower() == reference.strip().lower() else 0.0
+
+
+def exact_math_correctness(answer_text: str, reference: str) -> float:
+    _, candidate = canonical_task_answer("exact_math", answer_text)
+    gold = reference.strip()
+    if not candidate or not gold:
+        return 0.0
+    if candidate.strip().lower() == gold.strip().lower():
+        return 1.0
+    try:
+        import sympy  # type: ignore[import-not-found]
+
+        lhs: Any = sympy.sympify(candidate)
+        rhs: Any = sympy.sympify(gold)
+        if sympy.simplify(lhs - rhs) == 0:
+            return 1.0
+        if float(lhs.evalf()) == float(rhs.evalf()):
+            return 1.0
+    except Exception:
+        pass
+    return gsm8k_correctness(candidate, gold)
+
+
+def mcq_reasoning_correctness(answer_text: str, reference: str) -> float:
+    _, candidate = canonical_task_answer("mcq_reasoning", answer_text)
+    m = re.findall(r"\b([A-E])\b", candidate, re.IGNORECASE)
+    if not m:
+        return 0.0
+    return 1.0 if m[-1].upper() == reference.strip().upper() else 0.0
+
+
+def json_match_correctness(answer_text: str, reference: str) -> float:
+    _, candidate = canonical_task_answer("json_match", answer_text)
+    try:
+        pred = json.loads(candidate)
+        gold = json.loads(reference)
+    except json.JSONDecodeError:
+        return 0.0
+    return 1.0 if pred == gold else 0.0
 
 
 def _extract_code_block(response: str) -> str:
@@ -150,7 +221,10 @@ class VerifierPool:
 TASK_VERIFIERS: dict[str, Callable[[str, str], float]] = {
     "gsm8k": gsm8k_correctness,
     "exact_match": exact_match_correctness,
+    "exact_math": exact_math_correctness,
+    "mcq_reasoning": mcq_reasoning_correctness,
     "python_exec": python_exec_correctness,
+    "json_match": json_match_correctness,
 }
 
 
@@ -199,12 +273,14 @@ class CompositeVerifier:
 
     def reward(self, prompt: str, response: str, reference: str) -> RewardBreakdown:
         del prompt
-        fmt, answer_text = format_score(response)
+        fmt, answer_text = canonical_task_answer(self.task, response)
         correct = self._correct_fn(answer_text, reference) if fmt > 0 else 0.0
         python_exec = None
         mypy = None
         ruff = None
         bandit = None
+        if _REFUSAL_RE.search(answer_text):
+            correct = 0.0
         if self.task == "python_exec" and fmt > 0:
             python_exec = python_exec_correctness(answer_text, reference)
             if self.enable_code_quality:

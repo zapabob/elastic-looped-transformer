@@ -1,0 +1,66 @@
+teacher:
+  name: qwen3.5-9b-uncensored-hauhaucs-aggressive-q8_0-gguf
+  server_bin: llama-server.exe
+  model_path: C:/Users/downl/Desktop/EasyNovelAssistant/EasyNovelAssistant/KoboldCpp/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf
+  use_mmproj: false
+  host: 127.0.0.1
+  port: 8092
+  ctx_size: 4096
+  n_gpu_layers: 40
+  threads: 8
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 384
+  timeout_sec: 600
+
+pipeline:
+  output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_code
+  repo_id: ""
+  private: true
+  repo_type: dataset
+  samples_per_task: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
+  student_ckpt: ""
+  benchmark_manifest: ""
+  benchmark_out: student_eval.csv
+
+lane: code
+
+tasks:
+  - name: function_implementation
+    description: write self-contained Python functions that solve algorithmic or utility tasks
+    target_kind: python_exec
+    tags: [python, algorithms, stdlib]
+    variants:
+      - implement a pure function with clear type hints and deterministic behavior
+      - parse structured text or JSON using only the standard library
+      - transform lists or dictionaries efficiently without external packages
+      - write a small utility for paths, dates, or strings on Python 3.12
+  - name: bugfix_and_patch
+    description: repair broken Python snippets and return the corrected version
+    target_kind: python_exec
+    tags: [python, debugging, patching]
+    variants:
+      - fix an off-by-one error and prove it with assertions
+      - repair incorrect edge-case handling for empty input
+      - correct state mutation or scoping mistakes in a small function
+      - fix parsing code that mishandles whitespace or missing keys
+  - name: test_driven_code
+    description: produce Python code that satisfies a provided behavioral contract and test harness
+    target_kind: python_exec
+    tags: [python, testing, assertions]
+    variants:
+      - generate code that passes simple assert-based tests
+      - implement a class or function that satisfies a tiny API contract
+      - write code that handles both nominal and edge cases
+      - ensure the solution is compatible with direct execution
+  - name: code_reasoning
+    description: solve practical coding tasks with small but nontrivial reasoning steps
+    target_kind: python_exec
+    tags: [python, reasoning, data_processing]
+    variants:
+      - derive the correct implementation from a short natural-language requirement
+      - combine regex, parsing, and simple aggregation
+      - use collections or itertools to simplify the implementation
+      - favor clarity and correctness over micro-optimizations

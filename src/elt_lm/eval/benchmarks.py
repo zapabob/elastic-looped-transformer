@@ -21,8 +21,11 @@ import yaml
 
 from elt_lm.model import ELTLanguageModel
 from elt_lm.verifiers import (
+    exact_math_correctness,
     exact_match_correctness,
     gsm8k_correctness,
+    json_match_correctness,
+    mcq_reasoning_correctness,
     python_exec_correctness,
 )
 
@@ -30,7 +33,9 @@ from elt_lm.verifiers import (
 BenchmarkKind = Literal["jsonl", "hf"]
 BenchmarkTask = Literal[
     "exact_match",
+    "exact_math",
     "gsm8k",
+    "mcq_reasoning",
     "multiple_choice",
     "python_exec",
     "json_match",
@@ -200,20 +205,15 @@ def multiple_choice_correctness(answer_text: str, reference: str) -> float:
     return 1.0 if pred[-1].upper() == reference.strip().upper() else 0.0
 
 
-def json_match_correctness(answer_text: str, reference: str) -> float:
-    try:
-        pred = json.loads(answer_text)
-        gold = json.loads(reference)
-    except json.JSONDecodeError:
-        return 0.0
-    return 1.0 if pred == gold else 0.0
-
-
 def score_response(task: BenchmarkTask, response: str, reference: str) -> float:
     if task == "exact_match":
         return exact_match_correctness(response, reference)
+    if task == "exact_math":
+        return exact_math_correctness(response, reference)
     if task == "gsm8k":
         return gsm8k_correctness(response, reference)
+    if task == "mcq_reasoning":
+        return mcq_reasoning_correctness(response, reference)
     if task == "multiple_choice":
         return multiple_choice_correctness(response, reference)
     if task == "python_exec":

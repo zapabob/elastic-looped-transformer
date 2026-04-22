@@ -70,8 +70,11 @@ Here is the example.
 
 def test_normalize_teacher_example_falls_back_to_line_fields() -> None:
     task = DistillTask(
+        lane="detection",
         domain="drug_detection",
         description="detect drug sale or usage content",
+        target_kind="json_match",
+        tags=["drug_reference"],
         target_label="review",
         risk_tags=["drug_reference"],
         variant_index=0,
@@ -142,6 +145,118 @@ def test_evaluate_distill_records_counts_domains_and_duplicates() -> None:
     assert summary["domain_counts"]["drug_detection"] == 2
     assert summary["label_counts"]["review"] == 2
     assert summary["split_counts"]["train"] == 2
+
+
+def test_load_lane_config_uses_samples_per_task(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "gguf_code.yaml"
+    cfg_path.write_text(
+        """
+teacher:
+  model_path: C:/models/teacher.gguf
+pipeline:
+  output_root: H:/elt_data/gguf_distill/code
+  samples_per_task: 2
+lane: code
+tasks:
+  - name: function_implementation
+    description: write Python functions
+    target_kind: python_exec
+    tags: [python]
+    variants: [one, two]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    cfg = load_gguf_distill_config(cfg_path)
+    tasks = build_task_specs(cfg)
+
+    assert cfg.lane == "code"
+    assert cfg.pipeline.samples_per_task == 2
+    assert len(tasks) == 2
+    assert all(task.lane == "code" for task in tasks)
+    assert {task.variant for task in tasks} == {"one", "two"}
+
+
+def test_build_code_math_and_tool_records_include_reference_and_lane_metadata() -> None:
+    code_task = DistillTask(
+        lane="code",
+        domain="function_implementation",
+        description="write Python functions",
+        target_kind="python_exec",
+        tags=["python"],
+        target_label="",
+        risk_tags=[],
+        variant_index=0,
+        mode="standard",
+        variant="pure function",
+    )
+    math_task = DistillTask(
+        lane="math",
+        domain="algebra_reasoning",
+        description="solve algebra problems",
+        target_kind="exact_math",
+        tags=["algebra"],
+        target_label="",
+        risk_tags=[],
+        variant_index=0,
+        mode="standard",
+        variant="linear equation",
+    )
+    tool_task = DistillTask(
+        lane="tool_use",
+        domain="shell_selection",
+        description="choose a shell tool",
+        target_kind="json_match",
+        tags=["shell_command"],
+        target_label="",
+        risk_tags=[],
+        variant_index=0,
+        mode="standard",
+        variant="search files",
+    )
+
+    code_record = build_sft_record(
+        task=code_task,
+        example={
+            "user_request": "Write a function add(a, b).",
+            "assistant_code": "def add(a, b):\n    return a + b",
+            "verifier_snippet": "assert add(2, 3) == 5",
+        },
+        teacher_name="hauhaucs",
+        split="train",
+    )
+    math_record = build_sft_record(
+        task=math_task,
+        example={
+            "question": "Solve x + 1 = 3.",
+            "reasoning": "Subtract 1 from both sides.",
+            "final_answer": "2",
+            "reference": "2",
+        },
+        teacher_name="hauhaucs",
+        split="val",
+    )
+    tool_record = build_sft_record(
+        task=tool_task,
+        example={
+            "user_request": "List Python files recursively.",
+            "tool_name": "shell_command",
+            "arguments": {"command": "Get-ChildItem -Recurse -Filter *.py"},
+            "reference": {"tool_name": "shell_command", "arguments": {"command": "Get-ChildItem -Recurse -Filter *.py"}},
+        },
+        teacher_name="hauhaucs",
+        split="train",
+    )
+
+    assert code_record["task"] == "python_exec"
+    assert code_record["reference"] == "assert add(2, 3) == 5"
+    assert code_record["metadata"]["lane"] == "code"
+    assert math_record["task"] == "exact_math"
+    assert math_record["reference"] == "2"
+    assert "<answer>2</answer>" in math_record["response"]
+    assert tool_record["task"] == "json_match"
+    assert json.loads(tool_record["response"]) == json.loads(tool_record["reference"])
+    assert tool_record["metadata"]["lane"] == "tool_use"
 
 
 def test_build_hf_cli_plan_for_dataset_upload(tmp_path: Path) -> None:

@@ -1,0 +1,66 @@
+teacher:
+  name: qwen3.5-9b-uncensored-hauhaucs-aggressive-q8_0-gguf
+  server_bin: llama-server.exe
+  model_path: C:/Users/downl/Desktop/EasyNovelAssistant/EasyNovelAssistant/KoboldCpp/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf
+  use_mmproj: false
+  host: 127.0.0.1
+  port: 8092
+  ctx_size: 4096
+  n_gpu_layers: 40
+  threads: 8
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 384
+  timeout_sec: 600
+
+pipeline:
+  output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_tool_use
+  repo_id: ""
+  private: true
+  repo_type: dataset
+  samples_per_task: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
+  student_ckpt: ""
+  benchmark_manifest: ""
+  benchmark_out: student_eval.csv
+
+lane: tool_use
+
+tasks:
+  - name: shell_selection
+    description: choose an appropriate shell-like tool call for filesystem or process inspection
+    target_kind: json_match
+    tags: [shell_command, filesystem]
+    variants:
+      - inspect files in a workspace
+      - search for matching text or filenames
+      - run a short diagnostic command
+      - summarize git status or repository state
+  - name: python_tool_selection
+    description: choose a Python execution tool call for lightweight computation or transformation
+    target_kind: json_match
+    tags: [python_exec, scripting]
+    variants:
+      - transform or aggregate structured data
+      - parse JSON and compute a small summary
+      - evaluate a numerical expression or algorithm
+      - generate a compact derived artifact from text
+  - name: web_lookup_selection
+    description: choose a web or lookup tool call for retrieving current authoritative information
+    target_kind: json_match
+    tags: [web_search, retrieval]
+    variants:
+      - fetch an official documentation page
+      - look up a recent public fact
+      - retrieve a benchmark or model card
+      - collect source-backed citations for a claim
+  - name: structured_output_selection
+    description: choose a structured tool call with precise JSON arguments
+    target_kind: json_match
+    tags: [json_match, function_calling]
+    variants:
+      - emit a validated JSON payload for a named tool
+      - select the best function and arguments from a short user request
+      - preserve schema correctness under minor ambiguity
+      - avoid prose and output only the structured call

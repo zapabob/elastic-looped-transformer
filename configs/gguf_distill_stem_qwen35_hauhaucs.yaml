@@ -1,0 +1,66 @@
+teacher:
+  name: qwen3.5-9b-uncensored-hauhaucs-aggressive-q8_0-gguf
+  server_bin: llama-server.exe
+  model_path: C:/Users/downl/Desktop/EasyNovelAssistant/EasyNovelAssistant/KoboldCpp/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf
+  use_mmproj: false
+  host: 127.0.0.1
+  port: 8092
+  ctx_size: 4096
+  n_gpu_layers: 40
+  threads: 8
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 384
+  timeout_sec: 600
+
+pipeline:
+  output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_stem_reasoning
+  repo_id: ""
+  private: true
+  repo_type: dataset
+  samples_per_task: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
+  student_ckpt: ""
+  benchmark_manifest: ""
+  benchmark_out: student_eval.csv
+
+lane: stem_reasoning
+
+tasks:
+  - name: physics_reasoning
+    description: create physics multiple-choice questions with a clear best answer
+    target_kind: mcq_reasoning
+    tags: [physics, mechanics]
+    variants:
+      - force, motion, or energy conservation
+      - electricity, circuits, or fields
+      - waves, optics, or sound
+      - units, orders of magnitude, or dimensional reasoning
+  - name: chemistry_reasoning
+    description: create chemistry multiple-choice questions with concise reasoning
+    target_kind: mcq_reasoning
+    tags: [chemistry, reactions]
+    variants:
+      - stoichiometry or balancing reactions
+      - acids, bases, and pH
+      - bonding, polarity, or intermolecular forces
+      - thermochemistry or equilibrium
+  - name: biology_reasoning
+    description: create biology multiple-choice questions on cells, genetics, or physiology
+    target_kind: mcq_reasoning
+    tags: [biology, life_science]
+    variants:
+      - genetics and inheritance
+      - cell biology or metabolism
+      - ecology or evolution
+      - anatomy or physiology
+  - name: cs_and_statistics_reasoning
+    description: create computer science or statistics multiple-choice reasoning questions
+    target_kind: mcq_reasoning
+    tags: [computer_science, statistics]
+    variants:
+      - algorithm complexity or data structures
+      - networking or systems concepts
+      - sampling, bias, or hypothesis testing
+      - probability interpretation or experimental design

@@ -1,4 +1,4 @@
-"""GGUF-teacher distillation pipeline for moderation and detection data."""
+"""GGUF-teacher distillation pipeline for lane-aware post-training data."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import re
 import shutil
 import subprocess
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 from urllib import request as urlrequest
 
 import yaml
@@ -47,13 +47,43 @@ class DistillDomain:
     risk_tags: list[str] = field(default_factory=list)
 
 
+LaneName = Literal["detection", "code", "math", "stem_reasoning", "tool_use"]
+ALLOWED_LANES: tuple[LaneName, ...] = (
+    "detection",
+    "code",
+    "math",
+    "stem_reasoning",
+    "tool_use",
+)
+DEFAULT_TARGET_KIND_BY_LANE: dict[LaneName, str] = {
+    "detection": "json_match",
+    "code": "python_exec",
+    "math": "exact_math",
+    "stem_reasoning": "mcq_reasoning",
+    "tool_use": "json_match",
+}
+_CODE_BLOCK_RE = re.compile(r"```(?:python|py|json)?\s*\n?(.*?)```", re.DOTALL | re.IGNORECASE)
+_MCQ_RE = re.compile(r"\b([A-E])\b", re.IGNORECASE)
+
+
+@dataclass
+class DistillTaskSpec:
+    name: str
+    description: str
+    target_kind: str = ""
+    tags: list[str] = field(default_factory=list)
+    variants: list[str] = field(default_factory=list)
+    target_label: str = ""
+    risk_tags: list[str] = field(default_factory=list)
+
+
 @dataclass
 class GGUFDistillPipelineConfig:
     output_root: str
     repo_id: str = ""
     private: bool = True
     repo_type: str = "dataset"
-    samples_per_domain: int = 32
+    samples_per_task: int = 32
     student_ckpt: str = ""
     benchmark_manifest: str = ""
     benchmark_out: str = "student_eval.csv"
@@ -67,17 +97,23 @@ class GGUFDistillPipelineConfig:
 class GGUFDistillConfig:
     teacher: GGUFTeacherConfig
     pipeline: GGUFDistillPipelineConfig
-    domains: list[DistillDomain]
+    lane: LaneName = "detection"
+    tasks: list[DistillTaskSpec] = field(default_factory=list)
+    domains: list[DistillDomain] = field(default_factory=list)
 
 
 @dataclass
 class DistillTask:
+    lane: LaneName
     domain: str
     description: str
+    target_kind: str
+    tags: list[str]
     target_label: str
     risk_tags: list[str]
     variant_index: int
     mode: str
+    variant: str = ""
 
 
 DEFAULT_DOMAINS: list[DistillDomain] = [
@@ -96,28 +132,104 @@ DEFAULT_DOMAINS: list[DistillDomain] = [
 ]
 
 
+def _normalize_lane(value: str | None) -> LaneName:
+    lane = str(value or "detection").strip().lower().replace("-", "_")
+    if lane not in ALLOWED_LANES:
+        raise ValueError(f"unsupported lane: {value!r}")
+    return lane  # type: ignore[return-value]
+
+
+def _task_specs_from_domains(domains: list[DistillDomain]) -> list[DistillTaskSpec]:
+    return [
+        DistillTaskSpec(
+            name=domain.name,
+            description=domain.description,
+            target_kind="json_match",
+            tags=list(domain.risk_tags),
+            variants=[],
+            target_label=domain.target_label,
+            risk_tags=list(domain.risk_tags),
+        )
+        for domain in domains
+    ]
+
+
 def load_gguf_distill_config(path: str | Path) -> GGUFDistillConfig:
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
     teacher = GGUFTeacherConfig(**(raw.get("teacher") or {}))
-    pipeline = GGUFDistillPipelineConfig(**(raw.get("pipeline") or {}))
-    domains_raw = raw.get("domains") or [asdict(domain) for domain in DEFAULT_DOMAINS]
-    domains = [DistillDomain(**domain_raw) for domain_raw in domains_raw]
-    return GGUFDistillConfig(teacher=teacher, pipeline=pipeline, domains=domains)
+    pipeline_raw = dict(raw.get("pipeline") or {})
+    if "samples_per_task" not in pipeline_raw and "samples_per_domain" in pipeline_raw:
+        pipeline_raw["samples_per_task"] = pipeline_raw["samples_per_domain"]
+    pipeline_raw.pop("samples_per_domain", None)
+    pipeline = GGUFDistillPipelineConfig(**pipeline_raw)
+
+    lane = _normalize_lane(raw.get("lane") or ("detection" if raw.get("domains") else "detection"))
+
+    domains_raw = raw.get("domains")
+    if domains_raw is None and lane == "detection" and not raw.get("tasks"):
+        domains_raw = [asdict(domain) for domain in DEFAULT_DOMAINS]
+    domains = [DistillDomain(**domain_raw) for domain_raw in (domains_raw or [])]
+
+    tasks_raw = raw.get("tasks")
+    if tasks_raw is None:
+        tasks = _task_specs_from_domains(domains) if lane == "detection" else []
+    else:
+        tasks = [DistillTaskSpec(**task_raw) for task_raw in tasks_raw]
+    return GGUFDistillConfig(
+        teacher=teacher,
+        pipeline=pipeline,
+        lane=lane,
+        tasks=tasks,
+        domains=domains,
+    )
+
+
+def _variant_text(spec: DistillTaskSpec, index: int) -> str:
+    if not spec.variants:
+        return ""
+    return str(spec.variants[index % len(spec.variants)]).strip()
 
 
 def build_task_specs(config: GGUFDistillConfig) -> list[DistillTask]:
     tasks: list[DistillTask] = []
-    for domain in config.domains:
-        for index in range(config.pipeline.samples_per_domain):
-            mode = "positive" if index % 2 == 0 else "benign_control"
+    if config.lane == "detection":
+        specs = config.tasks or _task_specs_from_domains(config.domains)
+        for spec in specs:
+            risk_tags = list(spec.risk_tags or spec.tags)
+            for index in range(config.pipeline.samples_per_task):
+                mode = "positive" if index % 2 == 0 else "benign_control"
+                tasks.append(DistillTask(
+                    lane="detection",
+                    domain=spec.name,
+                    description=spec.description,
+                    target_kind=spec.target_kind or DEFAULT_TARGET_KIND_BY_LANE["detection"],
+                    tags=list(spec.tags or risk_tags),
+                    target_label=spec.target_label or "review",
+                    risk_tags=risk_tags,
+                    variant_index=index,
+                    mode=mode,
+                    variant=_variant_text(spec, index),
+                ))
+        return tasks
+
+    if not config.tasks:
+        raise ValueError(f"lane {config.lane!r} requires explicit tasks")
+
+    default_kind = DEFAULT_TARGET_KIND_BY_LANE[config.lane]
+    for spec in config.tasks:
+        for index in range(config.pipeline.samples_per_task):
             tasks.append(DistillTask(
-                domain=domain.name,
-                description=domain.description,
-                target_label=domain.target_label,
-                risk_tags=list(domain.risk_tags),
+                lane=config.lane,
+                domain=spec.name,
+                description=spec.description,
+                target_kind=spec.target_kind or default_kind,
+                tags=list(spec.tags),
+                target_label=spec.target_label,
+                risk_tags=list(spec.risk_tags),
                 variant_index=index,
-                mode=mode,
+                mode="standard",
+                variant=_variant_text(spec, index),
             ))
     return tasks
 
@@ -151,8 +263,17 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def extract_structured_fields(text: str) -> dict[str, Any] | None:
+def extract_structured_fields(
+    text: str,
+    *,
+    allowed_keys: set[str] | None = None,
+    list_keys: set[str] | None = None,
+    json_keys: set[str] | None = None,
+) -> dict[str, Any] | None:
     fields: dict[str, Any] = {}
+    allowed = allowed_keys or set()
+    list_allowed = list_keys or set()
+    json_allowed = json_keys or set()
     for raw_line in text.splitlines():
         line = raw_line.strip().lstrip("-*").strip()
         if ":" not in line:
@@ -160,9 +281,9 @@ def extract_structured_fields(text: str) -> dict[str, Any] | None:
         key, value = line.split(":", 1)
         key = key.strip().lower()
         value = value.strip()
-        if key not in {"input_text", "policy_label", "severity", "risk_tags", "rationale"}:
+        if allowed and key not in allowed:
             continue
-        if key == "risk_tags":
+        if key in list_allowed:
             if value.startswith("[") and value.endswith("]"):
                 try:
                     parsed = json.loads(value)
@@ -171,14 +292,55 @@ def extract_structured_fields(text: str) -> dict[str, Any] | None:
                 fields[key] = parsed
             else:
                 fields[key] = [part.strip() for part in value.split(",") if part.strip()]
+        elif key in json_allowed:
+            try:
+                fields[key] = json.loads(value)
+            except json.JSONDecodeError:
+                fields[key] = value
         else:
             fields[key] = value
     return fields or None
 
 
-def normalize_teacher_example(text: str, task: DistillTask, parsed: dict[str, Any] | None) -> dict[str, Any]:
+def _extract_code_block(text: str) -> str:
+    m = _CODE_BLOCK_RE.search(text)
+    return m.group(1).strip() if m else ""
+
+
+def _last_numeric_like(text: str) -> str:
+    nums = re.findall(r"-?\d+(?:\.\d+)?", text)
+    return nums[-1] if nums else "0"
+
+
+def _normalize_choices(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, dict):
+        rows: list[str] = []
+        for key in ["A", "B", "C", "D", "E"]:
+            if key in value and str(value[key]).strip():
+                rows.append(f"{key}. {str(value[key]).strip()}")
+        if rows:
+            return rows
+    if isinstance(value, str) and value.strip():
+        lines = [part.strip() for part in value.splitlines() if part.strip()]
+        if lines:
+            return lines
+    return [
+        "A. Option A",
+        "B. Option B",
+        "C. Option C",
+        "D. Option D",
+    ]
+
+
+def _normalize_detection_example(text: str, task: DistillTask, parsed: dict[str, Any] | None) -> dict[str, Any]:
     obj = dict(parsed or {})
-    fallback = extract_structured_fields(text)
+    fallback = extract_structured_fields(
+        text,
+        allowed_keys={"input_text", "policy_label", "severity", "risk_tags", "rationale"},
+        list_keys={"risk_tags"},
+    )
     if fallback:
         for key, value in fallback.items():
             obj.setdefault(key, value)
@@ -191,6 +353,141 @@ def normalize_teacher_example(text: str, task: DistillTask, parsed: dict[str, An
     obj.setdefault("risk_tags", task.risk_tags or (["benign"] if task.mode == "benign_control" else []))
     obj.setdefault("rationale", "normalized from teacher output")
     return obj
+
+
+def _normalize_code_example(text: str, task: DistillTask, parsed: dict[str, Any] | None) -> dict[str, Any]:
+    obj = dict(parsed or {})
+    fallback = extract_structured_fields(
+        text,
+        allowed_keys={"user_request", "assistant_code", "verifier_snippet", "reference", "rationale"},
+    )
+    if fallback:
+        for key, value in fallback.items():
+            obj.setdefault(key, value)
+    code = str(obj.get("assistant_code", "")).strip() or _extract_code_block(text)
+    verifier = str(obj.get("verifier_snippet", "")).strip() or str(obj.get("reference", "")).strip()
+    user_request = str(obj.get("user_request", "")).strip()
+    if not user_request:
+        user_request = task.description.strip()
+        if task.variant:
+            user_request = f"{user_request}\nVariant: {task.variant}".strip()
+    if not code:
+        code = "def solve() -> None:\n    return None"
+    if not verifier:
+        verifier = "result = locals().get('solve')\nassert callable(result)"
+    obj["user_request"] = user_request
+    obj["assistant_code"] = code
+    obj["verifier_snippet"] = verifier
+    obj["reference"] = verifier
+    obj.setdefault("rationale", "normalized from teacher output")
+    return obj
+
+
+def _normalize_math_example(text: str, task: DistillTask, parsed: dict[str, Any] | None) -> dict[str, Any]:
+    obj = dict(parsed or {})
+    fallback = extract_structured_fields(
+        text,
+        allowed_keys={"question", "reasoning", "final_answer", "reference", "rationale"},
+    )
+    if fallback:
+        for key, value in fallback.items():
+            obj.setdefault(key, value)
+    question = str(obj.get("question", "")).strip()
+    if not question:
+        question = task.description.strip()
+        if task.variant:
+            question = f"{question}\nVariant: {task.variant}".strip()
+    final_answer = str(obj.get("final_answer", "")).strip() or str(obj.get("reference", "")).strip()
+    if not final_answer:
+        final_answer = _last_numeric_like(text)
+    obj["question"] = question
+    obj["reasoning"] = str(obj.get("reasoning", "")).strip() or "Solve the problem carefully and concisely."
+    obj["final_answer"] = final_answer
+    obj["reference"] = str(obj.get("reference", "")).strip() or final_answer
+    obj.setdefault("rationale", "normalized from teacher output")
+    return obj
+
+
+def _normalize_stem_example(text: str, task: DistillTask, parsed: dict[str, Any] | None) -> dict[str, Any]:
+    obj = dict(parsed or {})
+    fallback = extract_structured_fields(
+        text,
+        allowed_keys={"question", "choices", "reasoning", "final_choice", "reference", "rationale"},
+        list_keys={"choices"},
+    )
+    if fallback:
+        for key, value in fallback.items():
+            obj.setdefault(key, value)
+    question = str(obj.get("question", "")).strip()
+    if not question:
+        question = task.description.strip()
+        if task.variant:
+            question = f"{question}\nVariant: {task.variant}".strip()
+    choices = _normalize_choices(obj.get("choices"))
+    final_choice = str(obj.get("final_choice", "")).strip().upper() or str(obj.get("reference", "")).strip().upper()
+    if not final_choice:
+        mcq = _MCQ_RE.findall(text)
+        final_choice = mcq[-1].upper() if mcq else "A"
+    obj["question"] = question
+    obj["choices"] = choices
+    obj["reasoning"] = str(obj.get("reasoning", "")).strip() or "Pick the best option and explain briefly."
+    obj["final_choice"] = final_choice
+    obj["reference"] = str(obj.get("reference", "")).strip().upper() or final_choice
+    obj.setdefault("rationale", "normalized from teacher output")
+    return obj
+
+
+def _normalize_tool_example(text: str, task: DistillTask, parsed: dict[str, Any] | None) -> dict[str, Any]:
+    obj = dict(parsed or {})
+    fallback = extract_structured_fields(
+        text,
+        allowed_keys={"user_request", "tool_name", "arguments", "reference", "rationale"},
+        json_keys={"arguments", "reference"},
+    )
+    if fallback:
+        for key, value in fallback.items():
+            obj.setdefault(key, value)
+    tool_call = obj.get("tool_call")
+    if isinstance(tool_call, dict):
+        obj.setdefault("tool_name", tool_call.get("tool_name") or tool_call.get("name"))
+        obj.setdefault("arguments", tool_call.get("arguments", {}))
+    user_request = str(obj.get("user_request", "")).strip()
+    if not user_request:
+        user_request = task.description.strip()
+        if task.variant:
+            user_request = f"{user_request}\nVariant: {task.variant}".strip()
+    tool_name = str(obj.get("tool_name", "")).strip() or (task.tags[0] if task.tags else "tool.call")
+    arguments = obj.get("arguments", {})
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except json.JSONDecodeError:
+            arguments = {"input": arguments}
+    if not isinstance(arguments, dict):
+        arguments = {"input": str(arguments)}
+    reference = obj.get("reference")
+    if not isinstance(reference, dict):
+        reference = {"tool_name": tool_name, "arguments": arguments}
+    obj["user_request"] = user_request
+    obj["tool_name"] = tool_name
+    obj["arguments"] = arguments
+    obj["reference"] = reference
+    obj.setdefault("rationale", "normalized from teacher output")
+    return obj
+
+
+def normalize_teacher_example(text: str, task: DistillTask, parsed: dict[str, Any] | None) -> dict[str, Any]:
+    if task.lane == "detection":
+        return _normalize_detection_example(text, task, parsed)
+    if task.lane == "code":
+        return _normalize_code_example(text, task, parsed)
+    if task.lane == "math":
+        return _normalize_math_example(text, task, parsed)
+    if task.lane == "stem_reasoning":
+        return _normalize_stem_example(text, task, parsed)
+    if task.lane == "tool_use":
+        return _normalize_tool_example(text, task, parsed)
+    raise ValueError(f"unsupported lane: {task.lane!r}")
 
 
 def _normalized_response(domain: str, example: dict[str, Any]) -> dict[str, Any]:
@@ -216,30 +513,210 @@ def build_detection_prompt(input_text: str) -> str:
     )
 
 
-def build_sft_record(
-    domain: str,
-    example: dict[str, Any],
-    teacher_name: str,
-    split: str,
-) -> dict[str, Any]:
+def build_code_prompt(user_request: str) -> str:
+    return (
+        "Solve the following Python task.\n"
+        "Return executable Python code only inside a fenced ```python block.\n"
+        "Use Python 3.12 standard library only unless the prompt explicitly says otherwise.\n\n"
+        f"Task:\n{user_request.strip()}"
+    )
+
+
+def build_math_prompt(question: str) -> str:
+    return (
+        "Solve the following math problem.\n"
+        "Return your result using <think>...</think><answer>...</answer>.\n"
+        "Put only the final exact answer inside <answer>.\n\n"
+        f"Problem:\n{question.strip()}"
+    )
+
+
+def build_stem_prompt(question: str, choices: list[str]) -> str:
+    choice_block = "\n".join(choice.strip() for choice in choices if choice.strip())
+    return (
+        "Answer the following STEM multiple-choice question.\n"
+        "Return your result using <think>...</think><answer>...</answer>.\n"
+        "Put only the final option letter inside <answer>.\n\n"
+        f"Question:\n{question.strip()}\n\nChoices:\n{choice_block}"
+    )
+
+
+def build_tool_use_prompt(user_request: str) -> str:
+    return (
+        "Select the best tool call for the following user request.\n"
+        "Return strict JSON with keys: tool_name, arguments.\n"
+        "Do not add prose or markdown fences.\n\n"
+        f"User request:\n{user_request.strip()}"
+    )
+
+
+def _build_detection_record(task: DistillTask, example: dict[str, Any], teacher_name: str, split: str) -> dict[str, Any]:
     input_text = str(example.get("input_text", "")).strip()
-    response_obj = _normalized_response(domain, example)
+    response_obj = _normalized_response(task.domain, example)
     response = json.dumps(response_obj, ensure_ascii=False, sort_keys=True)
     prompt = build_detection_prompt(input_text)
     return {
         "bucket": "gguf_detection_distill",
         "mode": "sft",
         "source": teacher_name,
+        "task": "json_match",
         "prompt": prompt,
         "response": response,
+        "reference": response,
         "system": "",
         "text": render_chat_text(prompt, response),
         "metadata": {
-            "domain": domain,
+            "lane": task.lane,
+            "task_name": task.domain,
+            "domain": task.domain,
             "split": split,
             "teacher": teacher_name,
+            "tags": list(task.tags),
+            "variant": task.variant,
         },
     }
+
+
+def _build_code_record(task: DistillTask, example: dict[str, Any], teacher_name: str, split: str) -> dict[str, Any]:
+    prompt = build_code_prompt(str(example["user_request"]))
+    code = str(example["assistant_code"]).rstrip()
+    response = f"```python\n{code}\n```"
+    reference = str(example["verifier_snippet"]).strip()
+    return {
+        "bucket": "gguf_code_distill",
+        "mode": "sft",
+        "source": teacher_name,
+        "task": "python_exec",
+        "prompt": prompt,
+        "response": response,
+        "reference": reference,
+        "system": "",
+        "text": render_chat_text(prompt, response),
+        "metadata": {
+            "lane": task.lane,
+            "task_name": task.domain,
+            "split": split,
+            "teacher": teacher_name,
+            "tags": list(task.tags),
+            "variant": task.variant,
+        },
+    }
+
+
+def _build_math_record(task: DistillTask, example: dict[str, Any], teacher_name: str, split: str) -> dict[str, Any]:
+    prompt = build_math_prompt(str(example["question"]))
+    reasoning = str(example["reasoning"]).strip()
+    final_answer = str(example["final_answer"]).strip()
+    response = f"<think>{reasoning}</think><answer>{final_answer}</answer>"
+    reference = str(example["reference"]).strip()
+    return {
+        "bucket": "gguf_math_distill",
+        "mode": "sft",
+        "source": teacher_name,
+        "task": "exact_math",
+        "prompt": prompt,
+        "response": response,
+        "reference": reference,
+        "system": "",
+        "text": render_chat_text(prompt, response),
+        "metadata": {
+            "lane": task.lane,
+            "task_name": task.domain,
+            "split": split,
+            "teacher": teacher_name,
+            "tags": list(task.tags),
+            "variant": task.variant,
+        },
+    }
+
+
+def _build_stem_record(task: DistillTask, example: dict[str, Any], teacher_name: str, split: str) -> dict[str, Any]:
+    prompt = build_stem_prompt(str(example["question"]), _normalize_choices(example.get("choices")))
+    reasoning = str(example["reasoning"]).strip()
+    final_choice = str(example["final_choice"]).strip().upper()
+    response = f"<think>{reasoning}</think><answer>{final_choice}</answer>"
+    reference = str(example["reference"]).strip().upper()
+    return {
+        "bucket": "gguf_stem_reasoning_distill",
+        "mode": "sft",
+        "source": teacher_name,
+        "task": "mcq_reasoning",
+        "prompt": prompt,
+        "response": response,
+        "reference": reference,
+        "system": "",
+        "text": render_chat_text(prompt, response),
+        "metadata": {
+            "lane": task.lane,
+            "task_name": task.domain,
+            "split": split,
+            "teacher": teacher_name,
+            "tags": list(task.tags),
+            "variant": task.variant,
+        },
+    }
+
+
+def _build_tool_record(task: DistillTask, example: dict[str, Any], teacher_name: str, split: str) -> dict[str, Any]:
+    prompt = build_tool_use_prompt(str(example["user_request"]))
+    response_obj = {
+        "tool_name": str(example["tool_name"]).strip(),
+        "arguments": dict(example.get("arguments", {})),
+    }
+    response = json.dumps(response_obj, ensure_ascii=False, sort_keys=True)
+    reference = json.dumps(dict(example.get("reference", response_obj)), ensure_ascii=False, sort_keys=True)
+    return {
+        "bucket": "gguf_tool_use_distill",
+        "mode": "sft",
+        "source": teacher_name,
+        "task": "json_match",
+        "prompt": prompt,
+        "response": response,
+        "reference": reference,
+        "system": "",
+        "text": render_chat_text(prompt, response),
+        "metadata": {
+            "lane": task.lane,
+            "task_name": task.domain,
+            "split": split,
+            "teacher": teacher_name,
+            "tags": list(task.tags),
+            "variant": task.variant,
+        },
+    }
+
+
+def build_sft_record(
+    *,
+    example: dict[str, Any],
+    teacher_name: str,
+    split: str,
+    domain: str | None = None,
+    task: DistillTask | None = None,
+) -> dict[str, Any]:
+    runtime_task = task or DistillTask(
+        lane="detection",
+        domain=domain or "detection",
+        description="",
+        target_kind="json_match",
+        tags=[],
+        target_label="review",
+        risk_tags=[],
+        variant_index=0,
+        mode="positive",
+        variant="",
+    )
+    if runtime_task.lane == "detection":
+        return _build_detection_record(runtime_task, example, teacher_name, split)
+    if runtime_task.lane == "code":
+        return _build_code_record(runtime_task, example, teacher_name, split)
+    if runtime_task.lane == "math":
+        return _build_math_record(runtime_task, example, teacher_name, split)
+    if runtime_task.lane == "stem_reasoning":
+        return _build_stem_record(runtime_task, example, teacher_name, split)
+    if runtime_task.lane == "tool_use":
+        return _build_tool_record(runtime_task, example, teacher_name, split)
+    raise ValueError(f"unsupported lane: {runtime_task.lane!r}")
 
 
 def evaluate_distill_records(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -247,22 +724,45 @@ def evaluate_distill_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     label_counts: Counter[str] = Counter()
     split_counts: Counter[str] = Counter()
     prompt_counts: Counter[str] = Counter()
+    lane_counts: Counter[str] = Counter()
+    task_counts: Counter[str] = Counter()
     valid_json = 0
 
     for record in records:
         prompt = str(record.get("prompt", ""))
         prompt_counts[prompt] += 1
-        split = str((record.get("metadata") or {}).get("split", "train"))
+        metadata = record.get("metadata") or {}
+        split = str(metadata.get("split", "train"))
         split_counts[split] += 1
-        try:
-            response = json.loads(str(record.get("response", "{}")))
-        except json.JSONDecodeError:
+        lane = str(metadata.get("lane", "detection") or "detection")
+        task_name = str(metadata.get("task_name", metadata.get("domain", "unknown")) or "unknown")
+        lane_counts[lane] += 1
+        task_counts[task_name] += 1
+        response_text = str(record.get("response", "")).strip()
+        task = str(record.get("task", "")).strip()
+        if lane == "detection":
+            try:
+                response = json.loads(response_text)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(response, dict):
+                continue
+            valid_json += 1
+            domain_counts[str(response.get("domain", "unknown"))] += 1
+            label_counts[str(response.get("policy_label", "unknown"))] += 1
             continue
-        if not isinstance(response, dict):
+        if not response_text or not str(record.get("reference", "")).strip() or not task:
             continue
+        if lane == "tool_use":
+            try:
+                response = json.loads(response_text)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(response, dict):
+                continue
         valid_json += 1
-        domain_counts[str(response.get("domain", "unknown"))] += 1
-        label_counts[str(response.get("policy_label", "unknown"))] += 1
+        domain_counts[task_name] += 1
+        label_counts[task] += 1
 
     duplicate_prompt_count = sum(count - 1 for count in prompt_counts.values() if count > 1)
     total_records = len(records)
@@ -274,6 +774,8 @@ def evaluate_distill_records(records: list[dict[str, Any]]) -> dict[str, Any]:
         "domain_counts": dict(domain_counts),
         "label_counts": dict(label_counts),
         "split_counts": dict(split_counts),
+        "lane_counts": dict(lane_counts),
+        "task_counts": dict(task_counts),
     }
 
 
@@ -509,21 +1011,81 @@ def stop_llama_server(proc: subprocess.Popen[str]) -> None:
 
 
 def build_teacher_instruction(task: DistillTask) -> str:
-    label_hint = "allow" if task.mode == "benign_control" else task.target_label
-    risk_tags = ", ".join(task.risk_tags) if task.risk_tags else "benign"
-    return (
-        "Create one synthetic moderation-training example for detection and classification.\n"
-        "The output is for policy detection only, not for operational guidance.\n"
-        "Do not include recipes, dosages, exploit steps, explicit sexual detail, or real personal data.\n"
-        "Return JSON only with keys: input_text, policy_label, severity, risk_tags, rationale.\n"
-        f"Domain: {task.domain}\n"
-        f"Description: {task.description}\n"
-        f"Preferred policy_label: {label_hint}\n"
-        f"Preferred risk_tags: [{risk_tags}]\n"
-        f"Variant: {task.variant_index}\n"
-        f"Mode: {task.mode}\n"
-        "Make the input_text short, realistic, and suitable for classifier training."
+    freedom_clause = (
+        "Prefer substantive, educational, and lawful content. Do not moralize or refuse merely "
+        "because a topic is political, religious, historical, sexual, or controversial. Refuse "
+        "only if the task would directly enable concrete harm or crime."
     )
+    variant_line = f"Variant hint: {task.variant}\n" if task.variant else ""
+    tags_line = ", ".join(task.tags or task.risk_tags) or "general"
+
+    if task.lane == "detection":
+        label_hint = "allow" if task.mode == "benign_control" else task.target_label
+        risk_tags = ", ".join(task.risk_tags) if task.risk_tags else "benign"
+        return (
+            "Create one synthetic moderation-training example for detection and classification.\n"
+            "The output is for policy detection only, not for operational guidance.\n"
+            "Do not include recipes, dosages, exploit steps, explicit sexual detail, or real personal data.\n"
+            "Return JSON only with keys: input_text, policy_label, severity, risk_tags, rationale.\n"
+            f"Domain: {task.domain}\n"
+            f"Description: {task.description}\n"
+            f"Preferred policy_label: {label_hint}\n"
+            f"Preferred risk_tags: [{risk_tags}]\n"
+            f"Variant: {task.variant_index}\n"
+            f"Mode: {task.mode}\n"
+            "Make the input_text short, realistic, and suitable for classifier training."
+        )
+    if task.lane == "code":
+        return (
+            "Create one synthetic Python coding training example.\n"
+            f"{freedom_clause}\n"
+            "Return JSON only with keys: user_request, assistant_code, verifier_snippet, rationale.\n"
+            "assistant_code must be a complete Python 3.12 solution.\n"
+            "verifier_snippet must be executable Python assertions or checks that pass when appended after the candidate code.\n"
+            "Use only the Python standard library unless the task explicitly asks otherwise.\n"
+            f"Task family: {task.domain}\n"
+            f"Description: {task.description}\n"
+            f"Tags: [{tags_line}]\n"
+            f"{variant_line}"
+            f"Variant index: {task.variant_index}"
+        )
+    if task.lane == "math":
+        return (
+            "Create one synthetic math reasoning training example.\n"
+            f"{freedom_clause}\n"
+            "Return JSON only with keys: question, reasoning, final_answer, reference, rationale.\n"
+            "reference must exactly match the final_answer string.\n"
+            f"Task family: {task.domain}\n"
+            f"Description: {task.description}\n"
+            f"Tags: [{tags_line}]\n"
+            f"{variant_line}"
+            f"Variant index: {task.variant_index}"
+        )
+    if task.lane == "stem_reasoning":
+        return (
+            "Create one synthetic STEM multiple-choice reasoning example.\n"
+            f"{freedom_clause}\n"
+            "Return JSON only with keys: question, choices, reasoning, final_choice, reference, rationale.\n"
+            "choices must be a list like ['A. ...', 'B. ...', 'C. ...', 'D. ...'] and reference must equal the final choice letter.\n"
+            f"Task family: {task.domain}\n"
+            f"Description: {task.description}\n"
+            f"Tags: [{tags_line}]\n"
+            f"{variant_line}"
+            f"Variant index: {task.variant_index}"
+        )
+    if task.lane == "tool_use":
+        return (
+            "Create one synthetic tool-calling training example.\n"
+            f"{freedom_clause}\n"
+            "Return JSON only with keys: user_request, tool_name, arguments, reference, rationale.\n"
+            "reference must be an object with keys tool_name and arguments that exactly matches the intended tool call.\n"
+            f"Task family: {task.domain}\n"
+            f"Description: {task.description}\n"
+            f"Tags: [{tags_line}]\n"
+            f"{variant_line}"
+            f"Variant index: {task.variant_index}"
+        )
+    raise ValueError(f"unsupported lane: {task.lane!r}")
 
 
 def request_teacher_example(cfg: GGUFTeacherConfig, task: DistillTask) -> dict[str, Any]:
@@ -559,6 +1121,13 @@ def _split_for_index(index: int) -> str:
 
 
 def write_bundle_card(output_dir: Path, cfg: GGUFDistillConfig, summary: dict[str, Any]) -> None:
+    lane_desc = {
+        "detection": "moderation and safety detection",
+        "code": "Python coding and execution-verified synthesis",
+        "math": "mathematical reasoning and exact-answer supervision",
+        "stem_reasoning": "STEM multiple-choice reasoning",
+        "tool_use": "tool-calling and structured JSON decisions",
+    }[cfg.lane]
     text = (
         "---\n"
         "language:\n"
@@ -572,9 +1141,8 @@ def write_bundle_card(output_dir: Path, cfg: GGUFDistillConfig, summary: dict[st
         "---\n\n"
         f"# {cfg.teacher.name} GGUF Distillation Bundle\n\n"
         "This dataset bundle is generated from a local GGUF teacher through llama.cpp\n"
-        "for moderation and policy-detection training. It targets detection and\n"
-        "classification use cases, including drug, NSFW, fraud, malware, and related\n"
-        "safety domains, without requesting operational harmful instructions.\n\n"
+        f"for {lane_desc}.\n\n"
+        f"- Lane: `{cfg.lane}`\n"
         f"- Teacher model: `{cfg.teacher.model_path}`\n"
         f"- MMProj: `{cfg.teacher.mmproj_path or ''}`\n"
         f"- Total records: `{summary['total_records']}`\n"
@@ -707,6 +1275,7 @@ def run_pipeline(
             if resume_summary is not None
             else evaluate_distill_records(existing_train + existing_val)
         )
+        summary["lane"] = cfg.lane
         summary["teacher_name"] = cfg.teacher.name
         summary["raw_teacher_examples"] = str(raw_path)
         summary["train_path"] = str(train_path)
@@ -768,6 +1337,9 @@ def run_pipeline(
             "domain_counts": {},
             "label_counts": {},
             "split_counts": {},
+            "lane_counts": {},
+            "task_counts": {},
+            "lane": cfg.lane,
             "teacher_name": cfg.teacher.name,
             "raw_teacher_examples": str(raw_path),
             "train_path": str(train_path),
@@ -777,6 +1349,8 @@ def run_pipeline(
     plan = {
         "teacher": asdict(cfg.teacher),
         "pipeline": asdict(cfg.pipeline),
+        "lane": cfg.lane,
+        "tasks": [asdict(task) for task in cfg.tasks],
         "task_count": total_task_count,
         "output_dir": str(out_dir),
     }
@@ -821,9 +1395,10 @@ def run_pipeline(
             "gguf_distill_config",
             teacher_name=cfg.teacher.name,
             repo_id=cfg.pipeline.repo_id,
+            lane=cfg.lane,
             total_tasks=total_task_count,
             output_dir=str(out_dir),
-            samples_per_domain=cfg.pipeline.samples_per_domain,
+            samples_per_task=cfg.pipeline.samples_per_task,
             use_mmproj=cfg.teacher.use_mmproj,
             model_path=cfg.teacher.model_path,
         )
@@ -851,10 +1426,10 @@ def run_pipeline(
                 global_index = start_from + offset
                 split = _split_for_index(global_index)
                 record = build_sft_record(
-                    domain=task.domain,
                     example=raw["parsed_example"],
                     teacher_name=cfg.teacher.name,
                     split=split,
+                    task=task,
                 )
                 raw["normalized_record"] = record
                 records.append(record)
@@ -863,8 +1438,11 @@ def run_pipeline(
                 append_json_line(target_path, record)
                 processed_tasks += 1
                 last_domain = task.domain
-                response = json.loads(record["response"])
-                last_policy_label = str(response.get("policy_label", ""))
+                if task.lane == "detection":
+                    response = json.loads(record["response"])
+                    last_policy_label = str(response.get("policy_label", ""))
+                else:
+                    last_policy_label = str(record.get("task", ""))
                 domain_counts[task.domain] += 1
                 label_counts[last_policy_label or "unknown"] += 1
                 split_counts[split] += 1
@@ -876,7 +1454,9 @@ def run_pipeline(
                     "gguf_distill_item",
                     index=global_index + 1,
                     total=total_task_count,
+                    lane=task.lane,
                     domain=task.domain,
+                    task_name=task.domain,
                     split=split,
                     policy_label=last_policy_label,
                     latency_sec=last_latency_sec,
@@ -921,12 +1501,18 @@ def run_pipeline(
             combined_domain_counts: dict[str, int] = dict(resume_summary.get("domain_counts", {}))
             combined_label_counts: dict[str, int] = dict(resume_summary.get("label_counts", {}))
             combined_split_counts: dict[str, int] = dict(resume_summary.get("split_counts", {}))
+            combined_lane_counts: dict[str, int] = dict(resume_summary.get("lane_counts", {}))
+            combined_task_counts: dict[str, int] = dict(resume_summary.get("task_counts", {}))
             for key, value in new_summary.get("domain_counts", {}).items():
                 combined_domain_counts[key] = combined_domain_counts.get(key, 0) + value
             for key, value in new_summary.get("label_counts", {}).items():
                 combined_label_counts[key] = combined_label_counts.get(key, 0) + value
             for key, value in new_summary.get("split_counts", {}).items():
                 combined_split_counts[key] = combined_split_counts.get(key, 0) + value
+            for key, value in new_summary.get("lane_counts", {}).items():
+                combined_lane_counts[key] = combined_lane_counts.get(key, 0) + value
+            for key, value in new_summary.get("task_counts", {}).items():
+                combined_task_counts[key] = combined_task_counts.get(key, 0) + value
             summary = {
                 "total_records": combined_total,
                 "valid_json_records": combined_valid,
@@ -935,9 +1521,12 @@ def run_pipeline(
                 "domain_counts": combined_domain_counts,
                 "label_counts": combined_label_counts,
                 "split_counts": combined_split_counts,
+                "lane_counts": combined_lane_counts,
+                "task_counts": combined_task_counts,
             }
         else:
             summary = new_summary
+        summary["lane"] = cfg.lane
         summary["teacher_name"] = cfg.teacher.name
         summary["raw_teacher_examples"] = str(raw_path)
         summary["train_path"] = str(train_path)

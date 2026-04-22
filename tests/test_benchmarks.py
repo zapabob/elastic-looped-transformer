@@ -55,6 +55,8 @@ def test_score_response_supports_multiple_choice_and_json() -> None:
     assert multiple_choice_correctness("I pick B", "B") == 1.0
     assert score_response("json_match", '{"a": 1}', '{"a": 1}') == 1.0
     assert score_response("gsm8k", "The answer is 42", "#### 42") == 1.0
+    assert score_response("exact_math", "<think>x</think><answer>7</answer>", "7") == 1.0
+    assert score_response("mcq_reasoning", "<think>x</think><answer>C</answer>", "C") == 1.0
 
 
 class _FakeTokenizer:
