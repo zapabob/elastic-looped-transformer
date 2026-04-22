@@ -68,6 +68,17 @@ class ILSDConfig:
     entropy_floor_weight: float = 0.0
     entropy_floor_start: float = 0.0
     entropy_floor_end: float = 0.0
+    # Loop-trajectory smoothness: penalize second differences of per-token entropy
+    # across the loop axis. This is the main lightweight loop-curve stabilizer.
+    entropy_curvature_weight: float = 0.0
+    # Optional sampled logit-space curvature on a small set of uncertain tokens.
+    # This is heavier than entropy curvature, so it is capped by max_positions.
+    logit_curvature_weight: float = 0.0
+    logit_curvature_max_positions: int = 0
+    # Focus auxiliary regularizers on uncertain tokens using teacher entropy and
+    # top1-top2 probability gap. Defaults preserve dense weighting.
+    uncertainty_entropy_min: float = 0.0
+    uncertainty_top2_gap_max: float = 1.0
     # Local hidden-state consistency across adjacent loops. Metric applies per token.
     local_consistency_weight: float = 0.0
     local_consistency_metric: Literal["cosine", "mse"] = "cosine"

@@ -49,10 +49,15 @@ ilsd:
   strict_student_below_teacher: true
   distill_teacher_temp: 1.5
   distill_uniform_mix: 0.001
-  entropy_floor_weight: 0.02
+  entropy_floor_weight: 0.01
   entropy_floor_start: 0.18
   entropy_floor_end: 0.08
-  local_consistency_weight: 0.05
+  entropy_curvature_weight: 0.02
+  logit_curvature_weight: 0.005
+  logit_curvature_max_positions: 32
+  uncertainty_entropy_min: 0.55
+  uncertainty_top2_gap_max: 0.15
+  local_consistency_weight: 0.01
   local_consistency_metric: cosine
 
 data:
