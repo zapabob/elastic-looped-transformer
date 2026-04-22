@@ -6,18 +6,19 @@ import argparse
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 import json
+import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import time
-from typing import Any
-from urllib import error as urlerror
+from typing import Any, Callable
 from urllib import request as urlrequest
 
 import yaml
 
 from elt_lm.posttrain_data import render_chat_text
+from elt_lm.telemetry import make_writer
 
 
 @dataclass
@@ -56,6 +57,8 @@ class GGUFDistillPipelineConfig:
     student_ckpt: str = ""
     benchmark_manifest: str = ""
     benchmark_out: str = "student_eval.csv"
+    heartbeat_interval_sec: int = 30
+    stall_after_sec: int = 1800
 
 
 @dataclass
@@ -279,6 +282,116 @@ def build_hf_cli_plan(output_dir: Path, repo_id: str, private: bool) -> list[lis
     ]
 
 
+def _pid_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def acquire_run_lock(lock_path: Path) -> Callable[[], None]:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if lock_path.exists():
+        try:
+            current = json.loads(lock_path.read_text(encoding="utf-8"))
+            current_pid = int(current.get("pid", 0))
+        except Exception:
+            current_pid = 0
+        if current_pid and _pid_is_alive(current_pid):
+            raise RuntimeError(f"distill pipeline already running with pid={current_pid}")
+    payload = {"pid": os.getpid(), "locked_at": time.time()}
+    lock_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _release() -> None:
+        if lock_path.exists():
+            try:
+                current = json.loads(lock_path.read_text(encoding="utf-8"))
+            except Exception:
+                current = {}
+            if int(current.get("pid", 0)) in {0, os.getpid()}:
+                lock_path.unlink(missing_ok=True)
+
+    return _release
+
+
+def build_status_snapshot(
+    *,
+    teacher_name: str,
+    repo_id: str,
+    current_stage: str,
+    state: str,
+    started_at: float,
+    updated_at: float,
+    processed_tasks: int,
+    total_tasks: int,
+    train_records: int,
+    val_records: int,
+    error_count: int,
+    domain_counts: dict[str, int],
+    label_counts: dict[str, int],
+    split_counts: dict[str, int],
+    last_domain: str,
+    last_policy_label: str,
+    last_latency_sec: float,
+    last_error: str,
+    student_eval_path: str,
+) -> dict[str, Any]:
+    progress_pct = round((processed_tasks / total_tasks) * 100.0, 3) if total_tasks else 0.0
+    elapsed_sec = max(0.0, updated_at - started_at)
+    eta_sec = None
+    if total_tasks > 0 and 0 < processed_tasks < total_tasks and elapsed_sec > 0:
+        eta_sec = round((elapsed_sec / processed_tasks) * (total_tasks - processed_tasks), 3)
+    elif total_tasks > 0 and processed_tasks >= total_tasks:
+        eta_sec = 0.0
+    return {
+        "teacher_name": teacher_name,
+        "repo_id": repo_id,
+        "current_stage": current_stage,
+        "state": state,
+        "started_at": started_at,
+        "updated_at": updated_at,
+        "elapsed_sec": round(elapsed_sec, 3),
+        "processed_tasks": processed_tasks,
+        "total_tasks": total_tasks,
+        "progress_pct": progress_pct,
+        "eta_sec": eta_sec,
+        "train_records": train_records,
+        "val_records": val_records,
+        "error_count": error_count,
+        "domain_counts": dict(domain_counts),
+        "label_counts": dict(label_counts),
+        "split_counts": dict(split_counts),
+        "last_domain": last_domain,
+        "last_policy_label": last_policy_label,
+        "last_latency_sec": round(last_latency_sec, 3),
+        "last_error": last_error,
+        "student_eval_path": student_eval_path,
+        "pid": os.getpid(),
+    }
+
+
+def write_status_artifacts(output_dir: Path, snapshot: dict[str, Any]) -> None:
+    status_path = output_dir / "status.json"
+    heartbeat_path = output_dir / "heartbeat.json"
+    status_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    heartbeat = {
+        "state": snapshot["state"],
+        "current_stage": snapshot["current_stage"],
+        "updated_at": snapshot["updated_at"],
+        "processed_tasks": snapshot["processed_tasks"],
+        "total_tasks": snapshot["total_tasks"],
+        "progress_pct": snapshot["progress_pct"],
+        "eta_sec": snapshot["eta_sec"],
+        "error_count": snapshot["error_count"],
+        "last_error": snapshot["last_error"],
+        "pid": snapshot["pid"],
+    }
+    heartbeat_path.write_text(json.dumps(heartbeat, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _post_json(url: str, payload: dict[str, Any], timeout_sec: int) -> dict[str, Any]:
     req = urlrequest.Request(
         url,
@@ -317,7 +430,8 @@ def launch_llama_server(cfg: GGUFTeacherConfig, log_path: Path) -> subprocess.Po
     if cfg.use_mmproj and cfg.mmproj_path:
         cmd.extend(["--mmproj", cfg.mmproj_path])
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_handle = open(log_path, "a", encoding="utf-8")
+    # Start each run with a fresh server log so monitoring shows the current session.
+    log_handle = open(log_path, "w", encoding="utf-8")
     return subprocess.Popen(
         cmd,
         stdout=log_handle,
@@ -478,54 +592,210 @@ def run_pipeline(
     if dry_run:
         return plan
 
-    log_path = out_dir / "llama_server.log"
-    proc = launch_llama_server(cfg.teacher, log_path)
-    records: list[dict[str, Any]] = []
-    raw_rows: list[dict[str, Any]] = []
+    telemetry = make_writer(out_dir)
+    release_lock: Callable[[], None] | None = None
+    started_at = time.time()
+    processed_tasks = 0
+    train_records = 0
+    val_records = 0
+    error_count = 0
+    last_domain = ""
+    last_policy_label = ""
+    last_latency_sec = 0.0
+    last_error = ""
+    current_stage = "init"
+    domain_counts: Counter[str] = Counter()
+    label_counts: Counter[str] = Counter()
+    split_counts: Counter[str] = Counter()
+    student_eval_path = ""
+    summary: dict[str, Any] | None = None
+
+    def update_status(state: str) -> dict[str, Any]:
+        snapshot = build_status_snapshot(
+            teacher_name=cfg.teacher.name,
+            repo_id=cfg.pipeline.repo_id,
+            current_stage=current_stage,
+            state=state,
+            started_at=started_at,
+            updated_at=time.time(),
+            processed_tasks=processed_tasks,
+            total_tasks=len(tasks),
+            train_records=train_records,
+            val_records=val_records,
+            error_count=error_count,
+            domain_counts=dict(domain_counts),
+            label_counts=dict(label_counts),
+            split_counts=dict(split_counts),
+            last_domain=last_domain,
+            last_policy_label=last_policy_label,
+            last_latency_sec=last_latency_sec,
+            last_error=last_error,
+            student_eval_path=student_eval_path,
+        )
+        write_status_artifacts(out_dir, snapshot)
+        return snapshot
+
     try:
-        wait_for_llama_server(cfg.teacher.host, cfg.teacher.port, cfg.teacher.timeout_sec)
-        for index, task in enumerate(tasks):
-            raw = request_teacher_example(cfg.teacher, task)
-            split = _split_for_index(index)
-            record = build_sft_record(
-                domain=task.domain,
-                example=raw["parsed_example"],
-                teacher_name=cfg.teacher.name,
-                split=split,
-            )
-            raw["normalized_record"] = record
-            raw_rows.append(raw)
-            records.append(record)
+        release_lock = acquire_run_lock(out_dir / "run.lock")
+        telemetry.emit(
+            "gguf_distill_config",
+            teacher_name=cfg.teacher.name,
+            repo_id=cfg.pipeline.repo_id,
+            total_tasks=len(tasks),
+            output_dir=str(out_dir),
+            samples_per_domain=cfg.pipeline.samples_per_domain,
+            use_mmproj=cfg.teacher.use_mmproj,
+            model_path=cfg.teacher.model_path,
+        )
+        update_status("starting")
+
+        log_path = out_dir / "llama_server.log"
+        current_stage = "server_launch"
+        telemetry.emit("gguf_distill_stage", stage=current_stage, status="start")
+        update_status("running")
+        proc: subprocess.Popen[str] | None = None
+        records: list[dict[str, Any]] = []
+        raw_rows: list[dict[str, Any]] = []
+        try:
+            proc = launch_llama_server(cfg.teacher, log_path)
+            telemetry.emit("gguf_distill_stage", stage=current_stage, status="waiting_health")
+            wait_for_llama_server(cfg.teacher.host, cfg.teacher.port, cfg.teacher.timeout_sec)
+            telemetry.emit("gguf_distill_stage", stage=current_stage, status="done")
+            current_stage = "teacher_generation"
+            telemetry.emit("gguf_distill_stage", stage=current_stage, status="start")
+            update_status("running")
+            for index, task in enumerate(tasks):
+                update_status("running")
+                t0 = time.time()
+                raw = request_teacher_example(cfg.teacher, task)
+                last_latency_sec = time.time() - t0
+                split = _split_for_index(index)
+                record = build_sft_record(
+                    domain=task.domain,
+                    example=raw["parsed_example"],
+                    teacher_name=cfg.teacher.name,
+                    split=split,
+                )
+                raw["normalized_record"] = record
+                raw_rows.append(raw)
+                records.append(record)
+                processed_tasks += 1
+                last_domain = task.domain
+                response = json.loads(record["response"])
+                last_policy_label = str(response.get("policy_label", ""))
+                domain_counts[task.domain] += 1
+                label_counts[last_policy_label or "unknown"] += 1
+                split_counts[split] += 1
+                if split == "val":
+                    val_records += 1
+                else:
+                    train_records += 1
+                telemetry.emit(
+                    "gguf_distill_item",
+                    index=index + 1,
+                    total=len(tasks),
+                    domain=task.domain,
+                    split=split,
+                    policy_label=last_policy_label,
+                    latency_sec=last_latency_sec,
+                    processed_tasks=processed_tasks,
+                    progress_pct=round((processed_tasks / len(tasks)) * 100.0, 3) if tasks else 0.0,
+                )
+                update_status("running")
+        finally:
+            if proc is not None:
+                stop_llama_server(proc)
+
+        telemetry.emit("gguf_distill_stage", stage=current_stage, status="done")
+
+        raw_path = out_dir / "raw_teacher_examples.jsonl"
+        train_path = out_dir / "distill_train.jsonl"
+        val_path = out_dir / "distill_val.jsonl"
+        with open(raw_path, "w", encoding="utf-8") as f:
+            for row in raw_rows:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        with open(train_path, "w", encoding="utf-8") as train_f, open(val_path, "w", encoding="utf-8") as val_f:
+            for record in records:
+                target = val_f if record["metadata"]["split"] == "val" else train_f
+                target.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        current_stage = "summary"
+        telemetry.emit("gguf_distill_stage", stage=current_stage, status="start")
+        update_status("running")
+        summary = evaluate_distill_records(records)
+        summary["teacher_name"] = cfg.teacher.name
+        summary["raw_teacher_examples"] = str(raw_path)
+        summary["train_path"] = str(train_path)
+        summary["val_path"] = str(val_path)
+        summary_path = out_dir / "eval_summary.json"
+        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        write_bundle_card(out_dir, cfg, summary)
+        telemetry.emit(
+            "gguf_distill_summary",
+            total_records=summary["total_records"],
+            schema_valid_rate=summary["schema_valid_rate"],
+            train_records=train_records,
+            val_records=val_records,
+        )
+        telemetry.emit("gguf_distill_stage", stage=current_stage, status="done")
+        if not skip_student_eval:
+            current_stage = "student_eval"
+            telemetry.emit("gguf_distill_stage", stage=current_stage, status="start")
+            update_status("running")
+            student_eval = maybe_run_student_eval(cfg, out_dir)
+            if student_eval is not None:
+                student_eval_path = str(student_eval)
+            update_status("running")
+            telemetry.emit("gguf_distill_stage", stage=current_stage, status="done")
+
+        if cfg.pipeline.repo_id and not skip_upload:
+            current_stage = "hf_upload"
+            telemetry.emit("gguf_distill_stage", stage=current_stage, status="start")
+            update_status("running")
+            upload_plan = build_hf_cli_plan(out_dir, cfg.pipeline.repo_id, cfg.pipeline.private)
+            for cmd in upload_plan:
+                telemetry.emit("gguf_distill_upload", status="start", command=" ".join(cmd))
+                run_subprocess(cmd)
+                telemetry.emit("gguf_distill_upload", status="done", command=" ".join(cmd))
+            telemetry.emit("gguf_distill_stage", stage=current_stage, status="done")
+
+        current_stage = "complete"
+        update_status("complete")
+        telemetry.emit(
+            "gguf_distill_stage",
+            stage=current_stage,
+            status="done",
+            processed_tasks=processed_tasks,
+            total_tasks=len(tasks),
+        )
+        if summary is None:
+            raise RuntimeError("distillation completed without a summary")
+        return summary
+    except Exception as exc:
+        error_count += 1
+        last_error = str(exc).strip() or exc.__class__.__name__
+        telemetry.emit(
+            "gguf_distill_error",
+            stage=current_stage,
+            error=last_error,
+            processed_tasks=processed_tasks,
+            total_tasks=len(tasks),
+        )
+        telemetry.emit(
+            "gguf_distill_stage",
+            stage=current_stage,
+            status="failed",
+            processed_tasks=processed_tasks,
+            total_tasks=len(tasks),
+            error=last_error,
+        )
+        update_status("failed")
+        raise
     finally:
-        stop_llama_server(proc)
-
-    raw_path = out_dir / "raw_teacher_examples.jsonl"
-    train_path = out_dir / "distill_train.jsonl"
-    val_path = out_dir / "distill_val.jsonl"
-    with open(raw_path, "w", encoding="utf-8") as f:
-        for row in raw_rows:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    with open(train_path, "w", encoding="utf-8") as train_f, open(val_path, "w", encoding="utf-8") as val_f:
-        for record in records:
-            target = val_f if record["metadata"]["split"] == "val" else train_f
-            target.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-    summary = evaluate_distill_records(records)
-    summary["teacher_name"] = cfg.teacher.name
-    summary["raw_teacher_examples"] = str(raw_path)
-    summary["train_path"] = str(train_path)
-    summary["val_path"] = str(val_path)
-    summary_path = out_dir / "eval_summary.json"
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    write_bundle_card(out_dir, cfg, summary)
-    maybe_run_student_eval(cfg, out_dir) if not skip_student_eval else None
-
-    if cfg.pipeline.repo_id and not skip_upload:
-        plan = build_hf_cli_plan(out_dir, cfg.pipeline.repo_id, cfg.pipeline.private)
-        run_hf_cli_plan(plan)
-
-    return summary
+        telemetry.close()
+        if release_lock is not None:
+            release_lock()
 
 
 def cli() -> None:

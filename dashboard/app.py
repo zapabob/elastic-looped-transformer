@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from dashboard.panels import checkpoints as p_ckpt  # noqa: E402
+from dashboard.panels import gguf_distill as p_gguf_distill  # noqa: E402
 from dashboard.panels import hardware as p_hw  # noqa: E402
 from dashboard.panels import inference as p_inference  # noqa: E402
 from dashboard.panels import pipeline as p_pipeline  # noqa: E402
@@ -37,6 +38,7 @@ from dashboard.utils.metrics_reader import discover_runs  # noqa: E402
 
 STATE_DIR = Path("H:/elt_data/pipeline_state")
 PIPELINE_LOG_DIR = Path("H:/elt_data/pipeline_logs")
+GGUF_DISTILL_DIR = Path("H:/elt_data/gguf_distill")
 DEFAULT_DISK_PATHS = [Path("C:/"), Path("H:/")]
 
 
@@ -70,6 +72,8 @@ def main() -> None:
             st.rerun()
 
     p_pipeline.render(STATE_DIR, pipeline_log_dir=PIPELINE_LOG_DIR)
+    st.divider()
+    p_gguf_distill.render(GGUF_DISTILL_DIR)
     st.divider()
 
     if selected_run is not None:

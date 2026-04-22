@@ -20,6 +20,8 @@ pipeline:
   private: true
   repo_type: dataset
   samples_per_domain: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
   student_ckpt: ""
   benchmark_manifest: ""
   benchmark_out: student_eval.csv

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 
 def read_jsonl(path: str | Path, last_n: int | None = 5000) -> list[dict]:
@@ -29,6 +29,18 @@ def read_jsonl(path: str | Path, last_n: int | None = 5000) -> list[dict]:
     if last_n is not None and len(out) > last_n:
         out = out[-last_n:]
     return out
+
+
+def read_json_file(path: str | Path) -> dict[str, Any] | None:
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        with open(p, "r", encoding="utf-8", errors="replace") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def filter_events(events: Iterable[dict], kind: str | set[str]) -> list[dict]:

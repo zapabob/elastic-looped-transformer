@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
 
 from elt_lm.gguf_distill import (
     build_hf_cli_plan,
+    build_status_snapshot,
     build_sft_record,
     build_task_specs,
     evaluate_distill_records,
     extract_json_object,
     load_gguf_distill_config,
+    acquire_run_lock,
     normalize_teacher_example,
     DistillTask,
+    write_status_artifacts,
 )
 
 
@@ -154,3 +158,74 @@ def test_build_hf_cli_plan_for_dataset_upload(tmp_path: Path) -> None:
     ]
     assert plan[1][:4] == ["hf", "upload-large-folder", "zapabobouj/elt-lm-distill-dataset", str(out_dir)]
     assert "--type" in plan[1]
+
+
+def test_build_status_snapshot_tracks_progress_and_eta() -> None:
+    snapshot = build_status_snapshot(
+        teacher_name="huihui-qwen36-gguf",
+        repo_id="zapabobouj/demo",
+        current_stage="teacher_generation",
+        state="running",
+        started_at=100.0,
+        updated_at=130.0,
+        processed_tasks=3,
+        total_tasks=10,
+        train_records=2,
+        val_records=1,
+        error_count=0,
+        domain_counts={"drug_detection": 2, "nsfw_detection": 1},
+        label_counts={"review": 2, "block": 1},
+        split_counts={"train": 2, "val": 1},
+        last_domain="nsfw_detection",
+        last_policy_label="block",
+        last_latency_sec=9.5,
+        last_error="",
+        student_eval_path="",
+    )
+
+    assert snapshot["progress_pct"] == 30.0
+    assert snapshot["eta_sec"] == 70.0
+    assert snapshot["domain_counts"]["drug_detection"] == 2
+    assert snapshot["last_policy_label"] == "block"
+
+
+def test_write_status_artifacts_writes_status_and_heartbeat(tmp_path: Path) -> None:
+    snapshot = build_status_snapshot(
+        teacher_name="huihui-qwen36-gguf",
+        repo_id="zapabobouj/demo",
+        current_stage="teacher_generation",
+        state="running",
+        started_at=100.0,
+        updated_at=130.0,
+        processed_tasks=3,
+        total_tasks=10,
+        train_records=2,
+        val_records=1,
+        error_count=0,
+        domain_counts={"drug_detection": 2},
+        label_counts={"review": 2},
+        split_counts={"train": 2, "val": 1},
+        last_domain="drug_detection",
+        last_policy_label="review",
+        last_latency_sec=8.0,
+        last_error="",
+        student_eval_path="",
+    )
+
+    write_status_artifacts(tmp_path, snapshot)
+    status = json.loads((tmp_path / "status.json").read_text(encoding="utf-8"))
+    heartbeat = json.loads((tmp_path / "heartbeat.json").read_text(encoding="utf-8"))
+
+    assert status["current_stage"] == "teacher_generation"
+    assert heartbeat["state"] == "running"
+    assert heartbeat["processed_tasks"] == 3
+
+
+def test_acquire_run_lock_rejects_live_lock(tmp_path: Path) -> None:
+    lock_path = tmp_path / "run.lock"
+    release = acquire_run_lock(lock_path)
+    try:
+        with pytest.raises(RuntimeError):
+            acquire_run_lock(lock_path)
+    finally:
+        release()

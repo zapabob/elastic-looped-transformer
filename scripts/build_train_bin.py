@@ -8,9 +8,13 @@ Sources we understand (auto-detected by filename or --source-type):
              : aegis SFT schema — {"instruction": "<str of dict with 'messages'>"}
   - "txt"    : a single plain-text file (utf-8)
 
-The aggregator writes one uint32 stream to H:/elt_data/bin/train.bin (90%) and
-val.bin (10%). EOS is appended between documents so the model sees explicit
-document boundaries.
+The aggregator writes one uint32 stream to H:/elt_data/bin/train.bin and
+val.bin. EOS is appended between documents so the model sees explicit
+document boundaries. Manifest entries may also specify `weight`:
+
+  - `weight = 1.0` keeps every document once
+  - `0 < weight < 1` downsamples deterministically
+  - `weight > 1` repeats documents deterministically
 
 Usage:
     uv run python scripts/build_train_bin.py \
@@ -27,7 +31,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 import numpy as np
 import yaml
@@ -41,6 +45,31 @@ class Source:
     type: str
     weight: float = 1.0
     max_docs: int | None = None
+
+
+def iter_weighted_texts(texts: Iterable[str], weight: float) -> Iterator[str]:
+    """Scale a source's contribution deterministically.
+
+    `weight=1.0` keeps every document once.
+    `0 < weight < 1` keeps a stable subset.
+    `weight > 1` repeats documents in a stable spread.
+
+    We use a Bresenham-style accumulator instead of RNG so repeated corpus
+    builds are bit-for-bit reproducible for the same manifest order.
+    """
+    if weight < 0:
+        raise ValueError(f"source weight must be >= 0, got {weight}")
+    if weight == 0:
+        return
+
+    target_emissions = 0.0
+    emitted = 0
+    for text in texts:
+        target_emissions += weight
+        copies = int(target_emissions) - emitted
+        emitted += copies
+        for _ in range(copies):
+            yield text
 
 
 def _parse_aegis_sft_instruction(raw: str) -> str | None:
@@ -71,7 +100,7 @@ def _parse_aegis_sft_instruction(raw: str) -> str | None:
     return None
 
 
-def iter_source(src: Source) -> Iterator[str]:
+def _iter_source_texts(src: Source) -> Iterator[str]:
     p = src.path
     t = src.type
     count = 0
@@ -111,6 +140,11 @@ def iter_source(src: Source) -> Iterator[str]:
             count += 1
             if src.max_docs is not None and count >= src.max_docs:
                 break
+
+
+def iter_source(src: Source) -> Iterator[str]:
+    """Yield source texts after deterministic source-level weighting."""
+    yield from iter_weighted_texts(_iter_source_texts(src), src.weight)
 
 
 def expand_sources(manifest: dict) -> list[Source]:

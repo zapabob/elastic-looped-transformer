@@ -8,6 +8,7 @@ from pathlib import Path
 from dashboard.utils.metrics_reader import (
     discover_runs,
     filter_events,
+    read_json_file,
     read_jsonl,
     read_log_tail,
 )
@@ -64,3 +65,15 @@ def test_read_log_tail(tmp_path: Path):
 
 def test_read_log_tail_missing(tmp_path: Path):
     assert read_log_tail(tmp_path / "nope.txt") == []
+
+
+def test_read_json_file(tmp_path: Path):
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({"state": "running", "processed_tasks": 4}), encoding="utf-8")
+    data = read_json_file(p)
+    assert data is not None
+    assert data["state"] == "running"
+
+
+def test_read_json_file_missing(tmp_path: Path):
+    assert read_json_file(tmp_path / "missing.json") is None
