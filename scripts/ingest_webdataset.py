@@ -79,7 +79,13 @@ def iter_jsonl_gz(path: Path, extractor: Callable[[dict], str | None]) -> Iterat
 
 
 def iter_jsonl_zst(path: Path, extractor: Callable[[dict], str | None]) -> Iterator[str]:
-    import zstandard as zstd  # type: ignore
+    try:
+        import zstandard as zstd  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "zstandard is required to ingest .jsonl.zst sources. "
+            "Install project dependencies with `uv sync`."
+        ) from exc
     dctx = zstd.ZstdDecompressor()
     with open(path, "rb") as f, dctx.stream_reader(f) as r:
         buf = b""

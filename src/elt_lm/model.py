@@ -1,14 +1,14 @@
-"""ELTLanguageModel — causal-LM port of arXiv:2604.09168 §4.
+"""ELTLanguageModel: causal-LM port of arXiv:2604.09168 section 4.
 
 Forward signature (central to ILSD training):
 
-    logits, intermediate_logits = model(input_ids, L, return_hidden_at=L_int)
+    out = model(input_ids, L, return_hidden_at=L_int)
 
 We run `composite_block` L times (weight-shared). At loop step `return_hidden_at`
-(1-indexed — i.e. after that many iterations) we additionally apply the final
+(1-indexed, i.e. after that many iterations) we additionally apply the final
 RMSNorm and the LM head to obtain student logits. The final logits after L loops
 are the teacher logits. This lets a single forward pass produce both ends of the
-ILSD loss (eq. 3), saving ~2× VRAM vs. two separate forwards.
+ILSD loss (eq. 3), saving roughly 2x VRAM vs. two separate forwards.
 """
 
 from __future__ import annotations
@@ -26,8 +26,10 @@ from elt_lm.rope import RoPECache
 
 
 class ELTOutput(NamedTuple):
-    logits: Tensor                       # (B, T, V) — after L loops
-    intermediate_logits: Tensor | None   # (B, T, V) — after return_hidden_at loops, or None
+    logits: Tensor
+    intermediate_logits: Tensor | None
+    intermediate_hidden: Tensor | None
+    per_loop_hidden: tuple[Tensor, ...] | None
 
 
 class ELTLanguageModel(nn.Module):
@@ -44,7 +46,7 @@ class ELTLanguageModel(nn.Module):
         self.rope = RoPECache(cfg.head_dim, cfg.max_seq_len, cfg.rope_theta)
 
         if cfg.tie_word_embeddings:
-            # Re-uses token embedding matrix as the LM projection; no new params.
+            # Re-use the token embedding matrix as the LM projection; no new params.
             self.lm_head = None
         else:
             self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
@@ -84,48 +86,64 @@ class ELTLanguageModel(nn.Module):
         input_ids: Tensor,
         L: int,
         return_hidden_at: int | None = None,
+        return_all_loop_hidden: bool = False,
     ) -> ELTOutput:
         """Run the ELT forward pass.
 
-        input_ids:        (B, T) int64
-        L:                number of composite-block iterations (>= 1)
-        return_hidden_at: if given, also return logits after this many iterations
-                          (must satisfy 1 <= return_hidden_at <= L).
+        input_ids:             (B, T) int64
+        L:                     number of composite-block iterations (>= 1)
+        return_hidden_at:      if given, also return logits after this many iterations
+                               (must satisfy 1 <= return_hidden_at <= L).
+        return_all_loop_hidden: if True, capture the hidden state after each loop.
         """
         assert L >= 1, f"L must be >= 1, got {L}"
         if return_hidden_at is not None:
-            assert 1 <= return_hidden_at <= L, \
+            assert 1 <= return_hidden_at <= L, (
                 f"return_hidden_at={return_hidden_at} out of range [1, {L}]"
+            )
 
         _, T = input_ids.shape
-        assert T <= self.cfg.max_seq_len, \
+        assert T <= self.cfg.max_seq_len, (
             f"seq_len={T} exceeds max_seq_len={self.cfg.max_seq_len}"
+        )
 
-        x: Tensor = self.tok_embed(input_ids)                   # (B, T, D)
+        x: Tensor = self.tok_embed(input_ids)
         cos, sin = self.rope(T, device=x.device, dtype=x.dtype)
 
         intermediate_logits: Tensor | None = None
+        intermediate_hidden: Tensor | None = None
+        per_loop_hidden: list[Tensor] | None = [] if return_all_loop_hidden else None
 
         for l_idx in range(1, L + 1):
             if self.cfg.grad_checkpoint and self.training:
-                x = gckpt.checkpoint(self.composite, x, cos, sin, use_reentrant=False)  # type: ignore[assignment]
+                x = gckpt.checkpoint(
+                    self.composite, x, cos, sin, use_reentrant=False
+                )  # type: ignore[assignment]
             else:
                 x = self.composite(x, cos, sin)
 
+            if per_loop_hidden is not None:
+                per_loop_hidden.append(x)
+
             if return_hidden_at is not None and l_idx == return_hidden_at and l_idx != L:
-                # Student read-off. Detach not used here — gradients flow through
-                # the student projection to loops 1..l_idx. Teacher is a separate
-                # continuation (loops l_idx+1..L) past this point.
+                # Student read-off. Detach is intentionally not used here: gradients
+                # flow through the student projection to loops 1..l_idx.
+                intermediate_hidden = x
                 intermediate_logits = self._project(x)
 
         logits = self._project(x)
 
         if return_hidden_at is not None and return_hidden_at == L:
             # Student == teacher in this degenerate case (L_int == L_max).
-            # Return the same tensor for both so downstream dist-loss term becomes 0.
+            intermediate_hidden = x
             intermediate_logits = logits
 
-        return ELTOutput(logits=logits, intermediate_logits=intermediate_logits)
+        return ELTOutput(
+            logits=logits,
+            intermediate_logits=intermediate_logits,
+            intermediate_hidden=intermediate_hidden,
+            per_loop_hidden=tuple(per_loop_hidden) if per_loop_hidden is not None else None,
+        )
 
     # --- generation ------------------------------------------------------
 
@@ -141,7 +159,7 @@ class ELTLanguageModel(nn.Module):
     ) -> Tensor:
         """Autoregressive sampling at a user-chosen loop count L.
 
-        Note: no KV cache — each step does a full forward over the grown sequence.
+        Note: no KV cache - each step does a full forward over the grown sequence.
         The ELT paper's Algorithm 2 already performs a fresh L-loop per token since
         input representations change each step. KV caching across tokens could be
         added later per-layer but is intentionally omitted here for correctness
@@ -149,7 +167,7 @@ class ELTLanguageModel(nn.Module):
         """
         self.eval()
         for _ in range(max_new_tokens):
-            ids = input_ids[:, -self.cfg.max_seq_len:]
+            ids = input_ids[:, -self.cfg.max_seq_len :]
             out = self.forward(ids, L=L)
             logits = out.logits[:, -1, :] / max(temperature, 1e-5)
 
@@ -169,8 +187,6 @@ class ELTLanguageModel(nn.Module):
         return input_ids
 
 
-# Convenience constructor ------------------------------------------------
-
 def build_model(cfg: ModelConfig) -> ELTLanguageModel:
-    model = ELTLanguageModel(cfg)
-    return model
+    """Convenience constructor."""
+    return ELTLanguageModel(cfg)

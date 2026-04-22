@@ -156,10 +156,13 @@ def run(args: argparse.Namespace) -> None:
                     max_new_tokens=args.bench_max_new_tokens,
                     temperature=args.bench_temperature,
                     top_k=args.bench_top_k,
+                    num_samples=args.bench_num_samples,
+                    verifier_retries=args.bench_verifier_retries,
                 )
                 print(
                     f"L={L}  benchmark={result.benchmark}  score={result.accuracy:.4f}  "
                     f"latency={result.latency_ms_per_case:.1f}ms/case  "
+                    f"attempts/case={result.attempts_per_case:.2f}  "
                     f"tok/s={result.tokens_per_sec:.0f}"
                 )
                 telemetry.emit(
@@ -172,6 +175,7 @@ def run(args: argparse.Namespace) -> None:
                     total=result.total,
                     latency_ms=result.latency_ms_per_case,
                     tokens_per_sec=result.tokens_per_sec,
+                    attempts_per_case=result.attempts_per_case,
                     ckpt=str(args.ckpt),
                 )
                 rows.append({
@@ -186,6 +190,7 @@ def run(args: argparse.Namespace) -> None:
                     "latency_ms": result.latency_ms_per_case,
                     "rel_flops": approx_flops,
                     "count": result.total,
+                    "attempts_per_case": result.attempts_per_case,
                 })
 
         out_csv = Path(args.out_csv) if args.out_csv else None
@@ -206,6 +211,7 @@ def run(args: argparse.Namespace) -> None:
                         "latency_ms",
                         "rel_flops",
                         "count",
+                        "attempts_per_case",
                     ],
                 )
                 writer.writeheader()
@@ -227,6 +233,8 @@ def cli() -> None:
     p.add_argument("--bench-max-new-tokens", type=int, default=128)
     p.add_argument("--bench-temperature", type=float, default=0.0)
     p.add_argument("--bench-top-k", type=int, default=1)
+    p.add_argument("--bench-num-samples", type=int, default=1)
+    p.add_argument("--bench-verifier-retries", type=int, default=0)
     p.add_argument("--out-csv", type=str, default="")
     p.add_argument(
         "--run-dir",

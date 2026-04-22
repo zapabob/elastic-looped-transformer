@@ -73,6 +73,7 @@ class BenchmarkResult:
     total: int
     latency_ms_per_case: float
     tokens_per_sec: float
+    attempts_per_case: float
 
 
 def load_benchmark_manifest(path: str | Path) -> list[BenchmarkSpec]:
@@ -232,6 +233,8 @@ def evaluate_benchmark(
     max_new_tokens: int,
     temperature: float,
     top_k: int,
+    num_samples: int = 1,
+    verifier_retries: int = 0,
 ) -> BenchmarkResult:
     cases = load_benchmark_cases(spec)
     if not cases:
@@ -240,30 +243,49 @@ def evaluate_benchmark(
     correct = 0
     total_resp_tokens = 0
     total_wall = 0.0
+    total_attempts = 0
     max_prompt_len = max(1, model.cfg.max_seq_len - max_new_tokens)
 
     for case in cases:
         prompt_ids = tokenizer.encode(case.prompt, add_special_tokens=False)
         prompt_ids = prompt_ids[-max_prompt_len:]
         input_ids = torch.tensor([prompt_ids], dtype=torch.long, device=device)
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        t0 = time.perf_counter()
-        out_ids = model.generate(
-            input_ids,
-            max_new_tokens=max_new_tokens,
-            L=L,
-            temperature=temperature,
-            top_k=top_k,
-            eos_token_id=tokenizer.eos_token_id,
-        )
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        total_wall += time.perf_counter() - t0
-        resp_ids = out_ids[0, input_ids.size(1):].tolist()
-        total_resp_tokens += len(resp_ids)
-        response = tokenizer.decode(resp_ids, skip_special_tokens=True).strip()
-        correct += int(score_response(case.task, response, case.reference) > 0.0)
+        attempts_left = max(1, num_samples)
+        retries_left = max(0, verifier_retries)
+        best_score = -1.0
+
+        while True:
+            for _ in range(attempts_left):
+                if device.type == "cuda":
+                    torch.cuda.synchronize()
+                t0 = time.perf_counter()
+                out_ids = model.generate(
+                    input_ids,
+                    max_new_tokens=max_new_tokens,
+                    L=L,
+                    temperature=temperature,
+                    top_k=top_k,
+                    eos_token_id=tokenizer.eos_token_id,
+                )
+                if device.type == "cuda":
+                    torch.cuda.synchronize()
+                total_wall += time.perf_counter() - t0
+                total_attempts += 1
+
+                resp_ids = out_ids[0, input_ids.size(1):].tolist()
+                total_resp_tokens += len(resp_ids)
+                response = tokenizer.decode(resp_ids, skip_special_tokens=True).strip()
+                score = score_response(case.task, response, case.reference)
+                best_score = max(best_score, score)
+                if score >= 1.0:
+                    break
+
+            if best_score > 0.0 or retries_left <= 0:
+                break
+            retries_left -= 1
+            attempts_left = 1
+
+        correct += int(best_score > 0.0)
 
     total = len(cases)
     return BenchmarkResult(
@@ -275,4 +297,5 @@ def evaluate_benchmark(
         total=total,
         latency_ms_per_case=(total_wall / max(1, total)) * 1000.0,
         tokens_per_sec=total_resp_tokens / max(1e-9, total_wall),
+        attempts_per_case=total_attempts / max(1, total),
     )

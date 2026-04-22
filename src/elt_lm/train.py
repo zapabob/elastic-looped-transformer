@@ -279,7 +279,9 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
                     f"step {global_step:6d} | lr {lr:.2e} | "
                     f"loss {avg:.4f} | L_int {out.L_int} | λ {out.lambda_value:.3f} | "
                     f"L_GT_t {out.l_gt_teacher.item():.3f} | L_GT_s {out.l_gt_student.item():.3f} | "
-                    f"L_dist {out.l_dist.item():.3f} | {tps:.0f} tok/s"
+                    f"L_dist {out.l_dist.item():.3f} | "
+                    f"L_ent {out.l_entropy.item():.3f} | "
+                    f"L_local {out.l_local.item():.3f} | {tps:.0f} tok/s"
                 )
                 telemetry.emit(
                     "train_step",
@@ -289,6 +291,8 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
                     l_gt_teacher=out.l_gt_teacher.item(),
                     l_gt_student=out.l_gt_student.item(),
                     l_dist=out.l_dist.item(),
+                    l_entropy=out.l_entropy.item(),
+                    l_local=out.l_local.item(),
                     L_int=out.L_int,
                     lambda_value=out.lambda_value,
                     tokens_per_sec=tps,

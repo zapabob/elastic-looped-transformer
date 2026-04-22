@@ -76,6 +76,8 @@ def test_smoke_training_reduces_loss(tmp_path: Path) -> None:
                 assert torch.isfinite(out.l_gt_teacher)
                 assert torch.isfinite(out.l_gt_student)
                 assert torch.isfinite(out.l_dist)
+                assert torch.isfinite(out.l_entropy)
+                assert torch.isfinite(out.l_local)
                 opt.zero_grad(set_to_none=True)
                 out.total.backward()
                 opt.step()

@@ -1,0 +1,15 @@
+output_root: H:/elt_data/gguf_distill/detection_two_teacher_queue
+poll_interval_sec: 30
+continue_on_failure: false
+wait_for_existing: true
+
+stages:
+  - name: huihui_qwen36_detection
+    config: gguf_distill_huihui_qwen36.yaml
+    resume: true
+    skip_completed: true
+
+  - name: qwen35_9b_hauhaucs_detection
+    config: gguf_distill_qwen35_9b_hauhaucs.yaml
+    resume: true
+    skip_completed: true

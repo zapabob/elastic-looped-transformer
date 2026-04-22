@@ -59,6 +59,8 @@ class GGUFDistillPipelineConfig:
     benchmark_out: str = "student_eval.csv"
     heartbeat_interval_sec: int = 30
     stall_after_sec: int = 1800
+    rolling_ckpt_interval_sec: int = 180
+    rolling_ckpt_keep: int = 3
 
 
 @dataclass
@@ -392,6 +394,61 @@ def write_status_artifacts(output_dir: Path, snapshot: dict[str, Any]) -> None:
     heartbeat_path.write_text(json.dumps(heartbeat, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def load_json_lines(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    records = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            records.append(parsed)
+    return records
+
+
+def append_json_line(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def write_checkpoint(output_dir: Path, payload: dict[str, Any], seq: int, keep: int) -> int:
+    checkpoint_keep = max(1, keep)
+    ckpt_index = seq % checkpoint_keep
+    ckpt_path = output_dir / f"checkpoint_{ckpt_index}.json"
+    payload_with_meta = dict(payload)
+    payload_with_meta["checkpoint_seq"] = seq
+    payload_with_meta["updated_at"] = time.time()
+    ckpt_path.write_text(json.dumps(payload_with_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return seq + 1
+
+
+def load_latest_checkpoint(output_dir: Path, keep: int) -> dict[str, Any]:
+    checkpoint_keep = max(1, keep)
+    latest: dict[str, Any] | None = None
+    latest_time = -1.0
+    for idx in range(checkpoint_keep):
+        ckpt_path = output_dir / f"checkpoint_{idx}.json"
+        if not ckpt_path.exists():
+            continue
+        try:
+            payload = json.loads(ckpt_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        ts = float(payload.get("updated_at", -1))
+        if ts > latest_time:
+            latest_time = ts
+            latest = payload
+    return latest or {}
+
+
 def _post_json(url: str, payload: dict[str, Any], timeout_sec: int) -> dict[str, Any]:
     req = urlrequest.Request(
         url,
@@ -563,6 +620,7 @@ def run_pipeline(
     skip_upload: bool = False,
     skip_student_eval: bool = False,
     dry_run: bool = False,
+    resume: bool = False,
 ) -> dict[str, Any]:
     out_dir = output_dir or Path(cfg.pipeline.output_root)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -575,14 +633,151 @@ def run_pipeline(
     if not shutil.which(cfg.teacher.server_bin) and not Path(cfg.teacher.server_bin).exists():
         raise FileNotFoundError(cfg.teacher.server_bin)
 
-    tasks = build_task_specs(cfg)
+    current_stage = "init"
+    processed_tasks = 0
+    train_records = 0
+    val_records = 0
+    error_count = 0
+    last_domain = ""
+    last_policy_label = ""
+    last_latency_sec = 0.0
+    last_error = ""
+    student_eval_path = ""
+    domain_counts: Counter[str] = Counter()
+    label_counts: Counter[str] = Counter()
+    split_counts: Counter[str] = Counter()
+    summary: dict[str, Any] | None = None
+
+    all_tasks = build_task_specs(cfg)
     if max_tasks > 0:
-        tasks = tasks[:max_tasks]
+        all_tasks = all_tasks[:max_tasks]
+    total_task_count = len(all_tasks)
+    tasks = all_tasks
+    start_from = 0
+
+    raw_path = out_dir / "raw_teacher_examples.jsonl"
+    train_path = out_dir / "distill_train.jsonl"
+    val_path = out_dir / "distill_val.jsonl"
+    resume_summary: dict[str, Any] | None = None
+    ckpt_interval = max(1, cfg.pipeline.rolling_ckpt_interval_sec)
+    ckpt_keep = max(1, cfg.pipeline.rolling_ckpt_keep)
+    ckpt_seq = 0
+    next_ckpt_at = time.time() + ckpt_interval
+    started_at = time.time()
+
+    existing_raw = []
+    existing_train = []
+    existing_val = []
+    if resume:
+        checkpoint_processed = 0
+        if ckpt := load_latest_checkpoint(out_dir, ckpt_keep):
+            ckpt_seq = int(ckpt.get("checkpoint_seq", 0))
+            next_ckpt_at = float(ckpt.get("updated_at", next_ckpt_at))
+            next_ckpt_at = max(next_ckpt_at, time.time()) + ckpt_interval
+            checkpoint_processed = int(
+                ckpt.get(
+                    "processed_tasks_total",
+                    int(ckpt.get("resume_start_offset", 0)) + int(ckpt.get("tasks_processed_in_this_session", 0)),
+                )
+            )
+
+        existing_raw = load_json_lines(raw_path)
+        existing_train = load_json_lines(train_path)
+        existing_val = load_json_lines(val_path)
+        existing_summary = evaluate_distill_records(existing_train + existing_val)
+        processed_tasks = max(processed_tasks, len(existing_raw), checkpoint_processed)
+        train_records = existing_summary["split_counts"].get("train", 0)
+        val_records = existing_summary["split_counts"].get("val", 0)
+        domain_counts = Counter(existing_summary.get("domain_counts", {}))
+        label_counts = Counter(existing_summary.get("label_counts", {}))
+        split_counts = Counter(existing_summary.get("split_counts", {}))
+        if existing_summary.get("total_records", 0) > 0:
+            resume_summary = existing_summary
+            last_error = ""
+        start_from = min(processed_tasks, total_task_count)
+        tasks = all_tasks[start_from:]
+    else:
+        resume_summary = None
+        for artifact_path in (raw_path, train_path, val_path):
+            artifact_path.write_text("", encoding="utf-8")
+
+    if resume and start_from >= total_task_count:
+        summary = (
+            resume_summary
+            if resume_summary is not None
+            else evaluate_distill_records(existing_train + existing_val)
+        )
+        summary["teacher_name"] = cfg.teacher.name
+        summary["raw_teacher_examples"] = str(raw_path)
+        summary["train_path"] = str(train_path)
+        summary["val_path"] = str(val_path)
+        summary_path = out_dir / "eval_summary.json"
+        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        final_snapshot = build_status_snapshot(
+            teacher_name=cfg.teacher.name,
+            repo_id=cfg.pipeline.repo_id,
+            current_stage="complete",
+            state="complete",
+            started_at=started_at,
+            updated_at=time.time(),
+            processed_tasks=processed_tasks,
+            total_tasks=total_task_count,
+            train_records=train_records,
+            val_records=val_records,
+            error_count=error_count,
+            domain_counts=dict(domain_counts),
+            label_counts=dict(label_counts),
+            split_counts=dict(split_counts),
+            last_domain=last_domain,
+            last_policy_label=last_policy_label,
+            last_latency_sec=last_latency_sec,
+            last_error=last_error,
+            student_eval_path=student_eval_path,
+        )
+        write_status_artifacts(out_dir, final_snapshot)
+        return summary
+
+    if total_task_count == 0:
+        final_snapshot = build_status_snapshot(
+            teacher_name=cfg.teacher.name,
+            repo_id=cfg.pipeline.repo_id,
+            current_stage="complete",
+            state="complete",
+            started_at=started_at,
+            updated_at=time.time(),
+            processed_tasks=processed_tasks,
+            total_tasks=total_task_count,
+            train_records=train_records,
+            val_records=val_records,
+            error_count=error_count,
+            domain_counts=dict(domain_counts),
+            label_counts=dict(label_counts),
+            split_counts=dict(split_counts),
+            last_domain=last_domain,
+            last_policy_label=last_policy_label,
+            last_latency_sec=last_latency_sec,
+            last_error=last_error,
+            student_eval_path=student_eval_path,
+        )
+        write_status_artifacts(out_dir, final_snapshot)
+        return {
+            "total_records": 0,
+            "valid_json_records": 0,
+            "schema_valid_rate": 0.0,
+            "duplicate_prompt_count": 0,
+            "domain_counts": {},
+            "label_counts": {},
+            "split_counts": {},
+            "teacher_name": cfg.teacher.name,
+            "raw_teacher_examples": str(raw_path),
+            "train_path": str(train_path),
+            "val_path": str(val_path),
+        }
 
     plan = {
         "teacher": asdict(cfg.teacher),
         "pipeline": asdict(cfg.pipeline),
-        "task_count": len(tasks),
+        "task_count": total_task_count,
         "output_dir": str(out_dir),
     }
     (out_dir / "pipeline_plan.json").write_text(
@@ -594,21 +789,6 @@ def run_pipeline(
 
     telemetry = make_writer(out_dir)
     release_lock: Callable[[], None] | None = None
-    started_at = time.time()
-    processed_tasks = 0
-    train_records = 0
-    val_records = 0
-    error_count = 0
-    last_domain = ""
-    last_policy_label = ""
-    last_latency_sec = 0.0
-    last_error = ""
-    current_stage = "init"
-    domain_counts: Counter[str] = Counter()
-    label_counts: Counter[str] = Counter()
-    split_counts: Counter[str] = Counter()
-    student_eval_path = ""
-    summary: dict[str, Any] | None = None
 
     def update_status(state: str) -> dict[str, Any]:
         snapshot = build_status_snapshot(
@@ -619,7 +799,7 @@ def run_pipeline(
             started_at=started_at,
             updated_at=time.time(),
             processed_tasks=processed_tasks,
-            total_tasks=len(tasks),
+            total_tasks=total_task_count,
             train_records=train_records,
             val_records=val_records,
             error_count=error_count,
@@ -641,7 +821,7 @@ def run_pipeline(
             "gguf_distill_config",
             teacher_name=cfg.teacher.name,
             repo_id=cfg.pipeline.repo_id,
-            total_tasks=len(tasks),
+            total_tasks=total_task_count,
             output_dir=str(out_dir),
             samples_per_domain=cfg.pipeline.samples_per_domain,
             use_mmproj=cfg.teacher.use_mmproj,
@@ -655,7 +835,6 @@ def run_pipeline(
         update_status("running")
         proc: subprocess.Popen[str] | None = None
         records: list[dict[str, Any]] = []
-        raw_rows: list[dict[str, Any]] = []
         try:
             proc = launch_llama_server(cfg.teacher, log_path)
             telemetry.emit("gguf_distill_stage", stage=current_stage, status="waiting_health")
@@ -664,12 +843,13 @@ def run_pipeline(
             current_stage = "teacher_generation"
             telemetry.emit("gguf_distill_stage", stage=current_stage, status="start")
             update_status("running")
-            for index, task in enumerate(tasks):
+            for offset, task in enumerate(tasks):
                 update_status("running")
                 t0 = time.time()
                 raw = request_teacher_example(cfg.teacher, task)
                 last_latency_sec = time.time() - t0
-                split = _split_for_index(index)
+                global_index = start_from + offset
+                split = _split_for_index(global_index)
                 record = build_sft_record(
                     domain=task.domain,
                     example=raw["parsed_example"],
@@ -677,8 +857,10 @@ def run_pipeline(
                     split=split,
                 )
                 raw["normalized_record"] = record
-                raw_rows.append(raw)
                 records.append(record)
+                append_json_line(raw_path, raw)
+                target_path = val_path if split == "val" else train_path
+                append_json_line(target_path, record)
                 processed_tasks += 1
                 last_domain = task.domain
                 response = json.loads(record["response"])
@@ -692,37 +874,70 @@ def run_pipeline(
                     train_records += 1
                 telemetry.emit(
                     "gguf_distill_item",
-                    index=index + 1,
-                    total=len(tasks),
+                    index=global_index + 1,
+                    total=total_task_count,
                     domain=task.domain,
                     split=split,
                     policy_label=last_policy_label,
                     latency_sec=last_latency_sec,
                     processed_tasks=processed_tasks,
-                    progress_pct=round((processed_tasks / len(tasks)) * 100.0, 3) if tasks else 0.0,
+                    progress_pct=round((processed_tasks / total_task_count) * 100.0, 3) if total_task_count else 0.0,
                 )
                 update_status("running")
+                now = time.time()
+                if now >= next_ckpt_at:
+                    ckpt_payload = {
+                        "tasks_total": total_task_count,
+                        "tasks_processed_in_this_session": processed_tasks - start_from,
+                        "processed_tasks_total": processed_tasks,
+                        "resume_start_offset": start_from if resume else 0,
+                        "train_records": train_records,
+                        "val_records": val_records,
+                        "error_count": error_count,
+                        "last_domain": last_domain,
+                        "last_policy_label": last_policy_label,
+                        "last_latency_sec": last_latency_sec,
+                        "last_error": last_error,
+                    }
+                    try:
+                        ckpt_seq = write_checkpoint(out_dir, ckpt_payload, ckpt_seq, ckpt_keep)
+                    except Exception:
+                        pass
+                    next_ckpt_at = now + ckpt_interval
         finally:
             if proc is not None:
                 stop_llama_server(proc)
 
         telemetry.emit("gguf_distill_stage", stage=current_stage, status="done")
 
-        raw_path = out_dir / "raw_teacher_examples.jsonl"
-        train_path = out_dir / "distill_train.jsonl"
-        val_path = out_dir / "distill_val.jsonl"
-        with open(raw_path, "w", encoding="utf-8") as f:
-            for row in raw_rows:
-                f.write(json.dumps(row, ensure_ascii=False) + "\n")
-        with open(train_path, "w", encoding="utf-8") as train_f, open(val_path, "w", encoding="utf-8") as val_f:
-            for record in records:
-                target = val_f if record["metadata"]["split"] == "val" else train_f
-                target.write(json.dumps(record, ensure_ascii=False) + "\n")
-
         current_stage = "summary"
         telemetry.emit("gguf_distill_stage", stage=current_stage, status="start")
         update_status("running")
-        summary = evaluate_distill_records(records)
+        new_summary = evaluate_distill_records(records)
+        if resume and resume_summary is not None:
+            combined_total = resume_summary["total_records"] + new_summary["total_records"]
+            combined_valid = resume_summary["valid_json_records"] + new_summary["valid_json_records"]
+            combined_duplicate = resume_summary["duplicate_prompt_count"] + new_summary["duplicate_prompt_count"]
+            combined_domain_counts: dict[str, int] = dict(resume_summary.get("domain_counts", {}))
+            combined_label_counts: dict[str, int] = dict(resume_summary.get("label_counts", {}))
+            combined_split_counts: dict[str, int] = dict(resume_summary.get("split_counts", {}))
+            for key, value in new_summary.get("domain_counts", {}).items():
+                combined_domain_counts[key] = combined_domain_counts.get(key, 0) + value
+            for key, value in new_summary.get("label_counts", {}).items():
+                combined_label_counts[key] = combined_label_counts.get(key, 0) + value
+            for key, value in new_summary.get("split_counts", {}).items():
+                combined_split_counts[key] = combined_split_counts.get(key, 0) + value
+            summary = {
+                "total_records": combined_total,
+                "valid_json_records": combined_valid,
+                "schema_valid_rate": (combined_valid / combined_total) if combined_total else 0.0,
+                "duplicate_prompt_count": combined_duplicate,
+                "domain_counts": combined_domain_counts,
+                "label_counts": combined_label_counts,
+                "split_counts": combined_split_counts,
+            }
+        else:
+            summary = new_summary
         summary["teacher_name"] = cfg.teacher.name
         summary["raw_teacher_examples"] = str(raw_path)
         summary["train_path"] = str(train_path)
@@ -767,7 +982,7 @@ def run_pipeline(
             stage=current_stage,
             status="done",
             processed_tasks=processed_tasks,
-            total_tasks=len(tasks),
+            total_tasks=total_task_count,
         )
         if summary is None:
             raise RuntimeError("distillation completed without a summary")
@@ -780,14 +995,14 @@ def run_pipeline(
             stage=current_stage,
             error=last_error,
             processed_tasks=processed_tasks,
-            total_tasks=len(tasks),
+            total_tasks=total_task_count,
         )
         telemetry.emit(
             "gguf_distill_stage",
             stage=current_stage,
             status="failed",
             processed_tasks=processed_tasks,
-            total_tasks=len(tasks),
+            total_tasks=total_task_count,
             error=last_error,
         )
         update_status("failed")
@@ -806,6 +1021,7 @@ def cli() -> None:
     p.add_argument("--skip-upload", action="store_true")
     p.add_argument("--skip-student-eval", action="store_true")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--resume", action="store_true", help="resume from existing output_dir artifacts")
     args = p.parse_args()
 
     cfg = load_gguf_distill_config(args.config)
@@ -816,5 +1032,6 @@ def cli() -> None:
         skip_upload=args.skip_upload,
         skip_student_eval=args.skip_student_eval,
         dry_run=args.dry_run,
+        resume=args.resume,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))

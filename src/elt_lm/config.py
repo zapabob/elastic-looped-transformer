@@ -61,6 +61,16 @@ class ILSDConfig:
     # If False, L_int == L_max collapses dist term to zero and that's ok (paper wording
     # supports U[L_min, L_max] inclusive).
     strict_student_below_teacher: bool = True
+    # Teacher-only temperature + tiny uniform smoothing for softer distillation targets.
+    distill_teacher_temp: float = 1.0
+    distill_uniform_mix: float = 0.0
+    # Confidence regularization: penalize normalized token entropy below a floor.
+    entropy_floor_weight: float = 0.0
+    entropy_floor_start: float = 0.0
+    entropy_floor_end: float = 0.0
+    # Local hidden-state consistency across adjacent loops. Metric applies per token.
+    local_consistency_weight: float = 0.0
+    local_consistency_metric: Literal["cosine", "mse"] = "cosine"
 
 
 @dataclass

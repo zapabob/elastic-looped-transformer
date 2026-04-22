@@ -1,0 +1,79 @@
+teacher:
+  name: huihui-qwen3.6-35b-a3b-abliterated-gguf
+  server_bin: llama-server.exe
+  model_path: C:/Users/downl/Desktop/SO8T/gguf_models/mradermacher/Huihui-Qwen3.6-35B-A3B-abliterated-GGUF/Huihui-Qwen3.6-35B-A3B-abliterated.Q4_K_M.gguf
+  mmproj_path: C:/Users/downl/Desktop/SO8T/gguf_models/mradermacher/Huihui-Qwen3.6-35B-A3B-abliterated-GGUF/Huihui-Qwen3.6-35B-A3B-abliterated.mmproj-f16.gguf
+  use_mmproj: false
+  host: 127.0.0.1
+  port: 8091
+  ctx_size: 4096
+  n_gpu_layers: 48
+  threads: 8
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 96
+  timeout_sec: 300
+
+pipeline:
+  output_root: H:/elt_data/gguf_distill/huihui_qwen36_detection_resume_smoke_fast
+  repo_id: zapabobouj/elt-lm-gguf-distill-huihui-qwen36-detection
+  private: true
+  repo_type: dataset
+  samples_per_domain: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
+  rolling_ckpt_interval_sec: 180
+  rolling_ckpt_keep: 3
+  student_ckpt: ""
+  benchmark_manifest: ""
+  benchmark_out: student_eval.csv
+
+domains:
+  - name: drug_detection
+    description: detect drug sale, procurement, or usage promotion
+    target_label: review
+    risk_tags: [drug_reference, procurement]
+  - name: nsfw_detection
+    description: detect adult sexual or explicit content
+    target_label: block
+    risk_tags: [adult_content]
+  - name: violence_detection
+    description: detect violent threats or graphic harm references
+    target_label: review
+    risk_tags: [violence]
+  - name: weapons_detection
+    description: detect weapon acquisition or threat content
+    target_label: review
+    risk_tags: [weapon_reference]
+  - name: self_harm_detection
+    description: detect self-harm ideation or encouragement
+    target_label: block
+    risk_tags: [self_harm]
+  - name: fraud_detection
+    description: detect scams, impersonation, or financial deception
+    target_label: review
+    risk_tags: [fraud]
+  - name: malware_detection
+    description: detect malware, phishing, or credential theft intent
+    target_label: review
+    risk_tags: [malware]
+  - name: pii_detection
+    description: detect exposure of personal or secret data
+    target_label: review
+    risk_tags: [pii]
+  - name: hate_harassment_detection
+    description: detect hateful or harassing language
+    target_label: review
+    risk_tags: [harassment]
+  - name: medical_risk_detection
+    description: detect unsafe medical advice or diagnosis claims
+    target_label: review
+    risk_tags: [medical_risk]
+  - name: legal_risk_detection
+    description: detect legal evasion or wrongdoing planning
+    target_label: review
+    risk_tags: [legal_risk]
+  - name: benign_control
+    description: generate safe benign controls across the same topical areas
+    target_label: allow
+    risk_tags: [benign]

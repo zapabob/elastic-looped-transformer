@@ -10,6 +10,8 @@ import yaml
 from elt_lm.config import DataConfig, ModelConfig, TrainConfig
 from elt_lm.eval.anytime_sweep import run
 from elt_lm.eval.benchmarks import (
+    BenchmarkSpec,
+    evaluate_benchmark,
     load_benchmark_cases,
     load_benchmark_manifest,
     multiple_choice_correctness,
@@ -128,6 +130,8 @@ def test_anytime_sweep_runs_benchmark_manifest(tmp_path: Path, monkeypatch) -> N
         bench_max_new_tokens=8,
         bench_temperature=0.0,
         bench_top_k=1,
+        bench_num_samples=1,
+        bench_verifier_retries=0,
         out_csv=str(tmp_path / "bench.csv"),
         run_dir=str(run_dir),
     )
@@ -142,3 +146,67 @@ def test_anytime_sweep_runs_benchmark_manifest(tmp_path: Path, monkeypatch) -> N
     assert len(bench_events) == 2
     assert {int(e["L"]) for e in bench_events} == {1, 2}
     assert all(abs(float(e["score"]) - 1.0) < 1e-6 for e in bench_events)
+    assert all(abs(float(e["attempts_per_case"]) - 1.0) < 1e-6 for e in bench_events)
+
+
+def test_evaluate_benchmark_retries_until_verifier_passes(monkeypatch) -> None:
+    cfg = TrainConfig(
+        model=ModelConfig(
+            vocab_size=128,
+            d_model=32,
+            n_unique_layers=2,
+            n_heads=2,
+            head_dim=16,
+            d_ff=64,
+            max_seq_len=32,
+            tie_word_embeddings=True,
+            grad_checkpoint=False,
+            L_min=1,
+            L_max=2,
+        ),
+        data=DataConfig(tokenizer_path="unused"),
+    )
+    model = ELTLanguageModel(cfg.model)
+    tok = _FakeTokenizer()
+    spec = BenchmarkSpec(
+        name="retry_exact",
+        kind="jsonl",
+        task="exact_match",
+        path=None,
+        prompt_field="prompt",
+        reference_field="reference",
+    )
+
+    responses = iter([torch.tensor([[5]]), torch.tensor([[7]])])
+
+    def _fake_generate(self, input_ids, **_kwargs):
+        resp = next(responses).to(device=input_ids.device, dtype=input_ids.dtype)
+        return torch.cat([input_ids, resp], dim=-1)
+
+    def _fake_cases(_spec):
+        return [type("Case", (), {
+            "prompt": "Choose one",
+            "reference": "A",
+            "task": "exact_match",
+            "benchmark": "retry_exact",
+        })()]
+
+    monkeypatch.setattr(ELTLanguageModel, "generate", _fake_generate)
+    monkeypatch.setattr("elt_lm.eval.benchmarks.load_benchmark_cases", _fake_cases)
+
+    result = evaluate_benchmark(
+        model=model,
+        tokenizer=tok,
+        spec=spec,
+        L=1,
+        device=torch.device("cpu"),
+        max_new_tokens=8,
+        temperature=0.8,
+        top_k=10,
+        num_samples=1,
+        verifier_retries=1,
+    )
+
+    assert result.correct == 1
+    assert result.total == 1
+    assert abs(result.attempts_per_case - 2.0) < 1e-6

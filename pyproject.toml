@@ -21,6 +21,7 @@ dependencies = [
     "numpy>=1.26.0",
     "datasets>=2.20.0",
     "huggingface-hub>=0.24.0",
+    "zstandard>=0.23.0",
 ]
 
 [project.optional-dependencies]
@@ -56,6 +57,7 @@ elt-train = "elt_lm.train:cli"
 elt-train-grpo = "elt_lm.train_grpo:cli"
 elt-train-reward = "elt_lm.train_reward_model:cli"
 elt-gguf-distill = "elt_lm.gguf_distill:cli"
+elt-gguf-distill-queue = "elt_lm.gguf_distill_queue:cli"
 elt-infer = "elt_lm.infer:cli"
 elt-tokenize = "elt_lm.tokenize_data:cli"
 elt-anytime = "elt_lm.eval.anytime_sweep:cli"
