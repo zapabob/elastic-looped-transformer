@@ -1,6 +1,6 @@
-# Removes the ELT-LM-Pipeline scheduled task. Called by scripts/pipeline.py
-# after the final stage completes, so the pipeline does not re-trigger on
-# subsequent boots. Also safe to run manually.
+# Removes the ELT-LM-Pipeline scheduled task. This is now a manual stop helper;
+# the long-run pipeline no longer self-removes on success because the 5-minute
+# monitor should remain available for future resumable stages.
 
 $ErrorActionPreference = "Continue"
 $taskName = "ELT-LM-Pipeline"

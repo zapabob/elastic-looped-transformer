@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 import torch
 from transformers import AutoTokenizer
 
 from elt_lm.config import TrainConfig
-from elt_lm.model import ELTLanguageModel
+from elt_lm.model import build_model
 
 
-def load_checkpoint(ckpt_path: str | Path, device: torch.device) -> tuple[ELTLanguageModel, TrainConfig]:
+def load_checkpoint(ckpt_path: str | Path, device: torch.device) -> tuple[Any, TrainConfig]:
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     cfg: TrainConfig = ckpt["cfg"]
-    model = ELTLanguageModel(cfg.model).to(device=device)
+    model = build_model(cfg.model).to(device=device)
     model.load_state_dict(ckpt["model"])
     model.eval()
     return model, cfg

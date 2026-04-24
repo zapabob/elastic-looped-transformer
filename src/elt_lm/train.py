@@ -11,17 +11,19 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
 
 import torch
+from torch import nn
 from torch.utils.data import DataLoader
 
 from elt_lm.config import TrainConfig, load_train_config
 from elt_lm.data import PackedTokenDataset
 from elt_lm.ilsd import ILSDLossFn
-from elt_lm.model import ELTLanguageModel
+from elt_lm.model import build_model
 from elt_lm.telemetry import make_writer
 
 
@@ -43,7 +45,7 @@ def lr_at(step: int, cfg: TrainConfig) -> float:
     return cfg.min_lr + (cfg.lr - cfg.min_lr) * coeff
 
 
-def configure_optimizer(model: ELTLanguageModel, cfg: TrainConfig) -> torch.optim.Optimizer:
+def configure_optimizer(model: nn.Module, cfg: TrainConfig) -> torch.optim.Optimizer:
     """AdamW variants.
 
     kind=adamw             : stock torch.optim.AdamW (fp32 state on GPU)
@@ -103,10 +105,10 @@ def _update_last_hardlink(out_dir: Path, path: Path) -> None:
     try:
         os.link(path, latest)
     except OSError:
-        torch.save(torch.load(path, map_location="cpu"), latest)
+        shutil.copy2(path, latest)
 
 
-def _build_ckpt_state(model: ELTLanguageModel, opt: torch.optim.Optimizer,
+def _build_ckpt_state(model: nn.Module, opt: torch.optim.Optimizer,
                       cfg: TrainConfig, step: int, extra: dict | None = None) -> dict:
     state = {
         "step": step,
@@ -123,7 +125,7 @@ def _build_ckpt_state(model: ELTLanguageModel, opt: torch.optim.Optimizer,
     return state
 
 
-def save_checkpoint(model: ELTLanguageModel, opt: torch.optim.Optimizer, cfg: TrainConfig,
+def save_checkpoint(model: nn.Module, opt: torch.optim.Optimizer, cfg: TrainConfig,
                     step: int, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"step_{step:07d}.pt"
@@ -146,7 +148,7 @@ class RollingCheckpointer:
         self.last_save_t = time.time()
         self.next_slot = 0
 
-    def maybe_save(self, model: ELTLanguageModel, opt: torch.optim.Optimizer,
+    def maybe_save(self, model: nn.Module, opt: torch.optim.Optimizer,
                    cfg: TrainConfig, step: int, force: bool = False) -> bool:
         now = time.time()
         if not force and (now - self.last_save_t) < self.interval:
@@ -162,7 +164,7 @@ class RollingCheckpointer:
         return True
 
 
-def load_checkpoint(path: str | Path, model: ELTLanguageModel,
+def load_checkpoint(path: str | Path, model: nn.Module,
                     opt: torch.optim.Optimizer | None = None) -> int:
     """Load a checkpoint, restore RNG state, return the step index to resume from."""
     state = torch.load(path, map_location="cpu", weights_only=False)
@@ -191,10 +193,12 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # ---- model ------------------------------------------------------------
-    model = ELTLanguageModel(cfg.model).to(device=device, dtype=dtype)
+    model = build_model(cfg.model).to(device=device, dtype=dtype)
     model.train()
-    n_total = model.num_parameters()
-    n_non_emb = model.num_parameters(non_embedding=True)
+    if not hasattr(model, "num_parameters"):
+        raise TypeError(f"model {type(model)!r} does not expose num_parameters()")
+    n_total = model.num_parameters()  # type: ignore[call-arg]
+    n_non_emb = model.num_parameters(non_embedding=True)  # type: ignore[call-arg]
     print(f"model params: {n_total/1e6:.1f}M total, {n_non_emb/1e6:.1f}M non-embedding")
 
     offload_store = None

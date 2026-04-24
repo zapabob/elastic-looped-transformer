@@ -26,9 +26,9 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+from torch import nn
 
 from elt_lm.config import ILSDConfig, ModelConfig
-from elt_lm.model import ELTLanguageModel
 
 
 @dataclass
@@ -151,14 +151,17 @@ def _entropy_floor_penalty(
 
 
 def _loop_entropies_from_hidden(
-    model: ELTLanguageModel,
+    model: nn.Module,
     hidden_states: tuple[Tensor, ...] | None,
 ) -> tuple[Tensor, ...] | None:
     if hidden_states is None or len(hidden_states) == 0:
         return None
+    projector = getattr(model, "_project", None)
+    if projector is None:
+        raise TypeError(f"model {type(model)!r} does not expose _project()")
     entropies: list[Tensor] = []
     for hidden in hidden_states:
-        logits = model._project(hidden)
+        logits = projector(hidden)
         entropies.append(_normalized_entropy_from_logits(logits[..., :-1, :]))
     return tuple(entropies)
 
@@ -296,7 +299,7 @@ def _logit_curvature_from_sampled_logits(
 
 
 def _sampled_logit_curvature_penalty(
-    model: ELTLanguageModel,
+    model: nn.Module,
     hidden_states: tuple[Tensor, ...] | None,
     priority_scores: Tensor,
     *,
@@ -304,6 +307,9 @@ def _sampled_logit_curvature_penalty(
 ) -> Tensor | None:
     if hidden_states is None or len(hidden_states) < 3 or max_positions <= 0:
         return None
+    projector = getattr(model, "_project", None)
+    if projector is None:
+        raise TypeError(f"model {type(model)!r} does not expose _project()")
     selected = _select_sample_positions(priority_scores, max_positions=max_positions)
     if selected is None:
         return None
@@ -312,7 +318,7 @@ def _sampled_logit_curvature_penalty(
     for hidden in hidden_states:
         shift_hidden = hidden[..., :-1, :].contiguous().view(-1, hidden.size(-1))
         picked_hidden = shift_hidden.index_select(0, flat_indices)
-        sampled_logits.append(model._project(picked_hidden).float())
+        sampled_logits.append(projector(picked_hidden).float())
     return _logit_curvature_from_sampled_logits(tuple(sampled_logits), sample_weights=sample_weights)
 
 
@@ -351,7 +357,7 @@ class ILSDLossFn:
 
     def __call__(
         self,
-        model: ELTLanguageModel,
+        model: nn.Module,
         input_ids: Tensor,
         labels: Tensor,
         step: int,

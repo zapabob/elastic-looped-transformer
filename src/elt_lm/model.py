@@ -187,6 +187,12 @@ class ELTLanguageModel(nn.Module):
         return input_ids
 
 
-def build_model(cfg: ModelConfig) -> ELTLanguageModel:
-    """Convenience constructor."""
-    return ELTLanguageModel(cfg)
+def build_model(cfg: ModelConfig) -> nn.Module:
+    """Construct the configured looped language model family."""
+    if cfg.backbone_kind == "native_elt":
+        return ELTLanguageModel(cfg)
+    if cfg.backbone_kind == "hf_qwen35_looped":
+        from elt_lm.hf_qwen35_looped import HFQwen35LoopedLM
+
+        return HFQwen35LoopedLM(cfg)
+    raise ValueError(f"unsupported backbone_kind={cfg.backbone_kind!r}")

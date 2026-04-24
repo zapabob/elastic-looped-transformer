@@ -17,6 +17,7 @@ import yaml
 
 @dataclass
 class ModelConfig:
+    backbone_kind: Literal["native_elt", "hf_qwen35_looped"] = "native_elt"
     vocab_size: int = 248320           # Qwen3.5 tokenizer
     d_model: int = 768
     n_unique_layers: int = 12          # N in paper
@@ -35,16 +36,26 @@ class ModelConfig:
 
     init_std: float = 0.02
     grad_checkpoint: bool = True       # checkpoint each g_Theta call
+    hf_model_path: str = ""
+    source_model_id: str = ""
+    language_only: bool = True
+    freeze_vision: bool = True
+    import_lm_head: bool = True
+    parity_dtype: Literal["fp32", "bf16", "fp16"] = "fp32"
+    loop_bootstrap_L_max: int = 1
+    hf_trainable_mode: Literal["all", "frozen", "norm_lm_head", "top_layers"] = "all"
+    hf_trainable_top_layers: int = 0
 
     def __post_init__(self) -> None:
-        if self.head_dim is None:
+        if self.backbone_kind == "native_elt" and self.head_dim is None:
             assert self.d_model % self.n_heads == 0, \
                 f"d_model ({self.d_model}) must be divisible by n_heads ({self.n_heads})"
             self.head_dim = self.d_model // self.n_heads
         if self.n_kv_heads is None:
             self.n_kv_heads = self.n_heads
-        assert self.n_heads % self.n_kv_heads == 0, \
-            "n_heads must be divisible by n_kv_heads for GQA"
+        if self.backbone_kind == "native_elt":
+            assert self.n_heads % self.n_kv_heads == 0, \
+                "n_heads must be divisible by n_kv_heads for GQA"
         assert 1 <= self.L_min <= self.L_max, "Require 1 <= L_min <= L_max"
 
 

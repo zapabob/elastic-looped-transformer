@@ -101,6 +101,11 @@ def export(ckpt: Path, out: Path, tokenizer: Path, repo_id: str | None) -> ELTFo
         f"checkpoint {ckpt} missing 'model' or 'cfg' keys"
 
     inner_cfg = state["cfg"].model           # elt_lm.config.ModelConfig
+    if getattr(inner_cfg, "backbone_kind", "native_elt") != "native_elt":
+        raise NotImplementedError(
+            "export_to_hf.py currently supports only native_elt checkpoints. "
+            "hf_qwen35_looped checkpoints are local-runtime only in v1."
+        )
     hf_cfg = ELTConfig.from_model_config(inner_cfg)
     model = ELTForCausalLM(hf_cfg)
     model.elt.load_state_dict(state["model"])
