@@ -15,7 +15,7 @@ teacher:
 
 pipeline:
   output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_stem_reasoning
-  repo_id: ""
+  repo_id: zapabobouj/elt-lm-gguf-distill-qwen35-hauhaucs-stem-reasoning
   private: true
   repo_type: dataset
   samples_per_task: 32
