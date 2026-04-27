@@ -11,6 +11,7 @@ from elt_lm.gguf_distill import (
     build_task_specs,
     evaluate_distill_records,
     extract_json_object,
+    guard_against_unsafe_reset,
     load_gguf_distill_config,
     acquire_run_lock,
     normalize_teacher_example,
@@ -344,3 +345,32 @@ def test_acquire_run_lock_rejects_live_lock(tmp_path: Path) -> None:
             acquire_run_lock(lock_path)
     finally:
         release()
+
+
+def test_guard_against_unsafe_reset_rejects_completed_bundle_summary(tmp_path: Path) -> None:
+    raw_path = tmp_path / "raw_teacher_examples.jsonl"
+    train_path = tmp_path / "distill_train.jsonl"
+    val_path = tmp_path / "distill_val.jsonl"
+    raw_path.write_text("", encoding="utf-8")
+    train_path.write_text("", encoding="utf-8")
+    val_path.write_text("", encoding="utf-8")
+    (tmp_path / "eval_summary.json").write_text(
+        json.dumps({"total_records": 384}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="Refusing to reset existing GGUF distill output"):
+        guard_against_unsafe_reset(tmp_path, (raw_path, train_path, val_path))
+
+
+def test_guard_against_unsafe_reset_allows_explicit_force_reset(tmp_path: Path) -> None:
+    raw_path = tmp_path / "raw_teacher_examples.jsonl"
+    train_path = tmp_path / "distill_train.jsonl"
+    val_path = tmp_path / "distill_val.jsonl"
+    train_path.write_text('{"record": 1}\n', encoding="utf-8")
+
+    guard_against_unsafe_reset(
+        tmp_path,
+        (raw_path, train_path, val_path),
+        force_reset=True,
+    )

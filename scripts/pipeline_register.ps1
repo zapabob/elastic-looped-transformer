@@ -11,7 +11,9 @@
 #     powershell -ExecutionPolicy Bypass -File scripts/pipeline_register.ps1 -WhatIf
 
 [CmdletBinding(SupportsShouldProcess = $true)]
-param()
+param(
+    [switch]$StartLongTrain
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -21,19 +23,26 @@ $logDir   = "H:\elt_data\pipeline_logs"
 $null = New-Item -ItemType Directory -Force -Path $logDir
 
 $launcher = Join-Path $logDir "pipeline_launcher.ps1"
+$startLongTrainEnv = if ($StartLongTrain) { "1" } else { "" }
 $launcherBody = @"
 # Auto-generated launcher. Keep a rolling scheduler log, then run the pipeline.
 `$ErrorActionPreference = "Continue"
 `$repoRoot = "$repoRoot"
 `$logDir   = "$logDir"
+`$env:ELT_PIPELINE_START_LONG = "$startLongTrainEnv"
 `$stamp    = Get-Date -Format "yyyyMMdd-HHmmss"
 `$logFile  = Join-Path `$logDir "pipeline-`$stamp.log"
+`$pipelineArgs = @()
+if (`$env:ELT_PIPELINE_START_LONG -ne "1") {
+    `$pipelineArgs += "--no-start-long-train"
+}
 
 Set-Location `$repoRoot
 Write-Output "=== tick `$stamp, repo=`$repoRoot ===" | Tee-Object -FilePath `$logFile
+Write-Output "pipeline args: `$(`$pipelineArgs -join ' ')" | Tee-Object -Append -FilePath `$logFile
 
 try {
-    & uv run --no-sync python scripts/pipeline.py *>&1 | Tee-Object -Append -FilePath `$logFile
+    & uv run --no-sync python scripts/pipeline.py @pipelineArgs *>&1 | Tee-Object -Append -FilePath `$logFile
 } catch {
     "`$_" | Tee-Object -Append -FilePath `$logFile
     exit 1
@@ -155,6 +164,9 @@ if ($PSCmdlet.ShouldProcess($taskName, "register scheduled task")) {
             }
             Write-Output "  registered: $taskName  (every 5 minutes via schtasks.exe simple fallback)"
             Write-Output "  note      : battery/logon settings require elevated Task Scheduler registration."
+            if (-not $StartLongTrain) {
+                Write-Output "  safe mode : long train stages are deferred; pass -StartLongTrain after dry-run validation."
+            }
             return
         }
         Write-Output "  registered: $taskName  (at logon + every 5 minutes via schtasks.exe XML)"
@@ -169,3 +181,6 @@ Write-Output "  logs      : $logDir"
 Write-Output ""
 Write-Output "  to verify : Get-ScheduledTask -TaskName $taskName"
 Write-Output "  to remove : powershell -File scripts/pipeline_unregister.ps1"
+if (-not $StartLongTrain) {
+    Write-Output "  safe mode : long train stages are deferred; pass -StartLongTrain after dry-run validation."
+}

@@ -6,8 +6,8 @@
   use_mmproj: false
   host: 127.0.0.1
   port: 8091
-  ctx_size: 4096
-  n_gpu_layers: 48
+  ctx_size: 2048
+  n_gpu_layers: 16
   threads: 8
   temperature: 0.2
   top_p: 0.95

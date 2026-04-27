@@ -26,7 +26,8 @@ def test_base_1b_clean_smoke_config_is_short_and_isolated() -> None:
     assert cfg.eval_every == 2
     assert cfg.save_every == 2
     assert cfg.rolling_ckpt_interval_sec == 600
-    assert cfg.optim.kind == "paged_adamw_8bit"
+    assert cfg.optim.kind == "nvme_adamw"
+    assert cfg.offload.root == "H:/elt_data/runs/base_1B_clean_smoke_2026-04-24/offload_nvme"
     assert cfg.model.backbone_kind == "native_elt"
 
 
@@ -40,7 +41,8 @@ def test_base_1b_clean_full_config_keeps_long_run_shape() -> None:
     assert cfg.grad_accum_steps == 64
     assert cfg.eval_every == 1000
     assert cfg.save_every == 2000
-    assert cfg.optim.kind == "paged_adamw_8bit"
+    assert cfg.optim.kind == "nvme_adamw"
+    assert cfg.offload.root == "H:/elt_data/runs/base_1B_clean_continue/offload_nvme"
     assert cfg.model.backbone_kind == "native_elt"
 
 

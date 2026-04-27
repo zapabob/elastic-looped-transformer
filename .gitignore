@@ -15,6 +15,7 @@ data_bin/
 *.f32
 offload_nvme/
 logs/
+.tmp
 
 .env
 wandb/
@@ -24,4 +25,3 @@ tensorboard/
 .idea/
 
 .claude/
-

@@ -951,6 +951,68 @@ def load_latest_checkpoint(output_dir: Path, keep: int) -> dict[str, Any]:
     return latest or {}
 
 
+def _read_json_object(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def guard_against_unsafe_reset(
+    output_dir: Path,
+    artifacts: tuple[Path, ...],
+    *,
+    force_reset: bool = False,
+) -> None:
+    """Refuse accidental bundle truncation unless the caller opts in explicitly."""
+    if force_reset:
+        return
+
+    reasons: list[str] = []
+    non_empty = [path.name for path in artifacts if path.exists() and path.stat().st_size > 0]
+    if non_empty:
+        reasons.append("non-empty artifacts: " + ", ".join(non_empty))
+
+    summary = _read_json_object(output_dir / "eval_summary.json")
+    summary_records = int(summary.get("total_records", 0) or 0)
+    if summary_records > 0:
+        reasons.append(f"eval_summary.json reports {summary_records} records")
+
+    status = _read_json_object(output_dir / "status.json")
+    status_records = int(status.get("train_records", 0) or 0) + int(status.get("val_records", 0) or 0)
+    status_processed = int(status.get("processed_tasks", 0) or 0)
+    if status_records > 0 or status_processed > 0:
+        reasons.append(
+            f"status.json reports {status_processed} processed tasks and {status_records} records"
+        )
+
+    checkpoint_records = 0
+    checkpoint_processed = 0
+    for ckpt_path in output_dir.glob("checkpoint_*.json"):
+        ckpt = _read_json_object(ckpt_path)
+        checkpoint_records = max(
+            checkpoint_records,
+            int(ckpt.get("train_records", 0) or 0) + int(ckpt.get("val_records", 0) or 0),
+        )
+        checkpoint_processed = max(checkpoint_processed, int(ckpt.get("processed_tasks_total", 0) or 0))
+    if checkpoint_records > 0 or checkpoint_processed > 0:
+        reasons.append(
+            f"checkpoint_*.json reports up to {checkpoint_processed} processed tasks and {checkpoint_records} records"
+        )
+
+    if not reasons:
+        return
+    reason_text = "; ".join(reasons)
+    raise RuntimeError(
+        "Refusing to reset existing GGUF distill output because it looks recoverable or complete "
+        f"({reason_text}). Re-run with --resume, move the output directory aside, or pass "
+        "--force-reset only when intentionally discarding the bundle."
+    )
+
+
 def _post_json(url: str, payload: dict[str, Any], timeout_sec: int) -> dict[str, Any]:
     req = urlrequest.Request(
         url,
@@ -1189,6 +1251,7 @@ def run_pipeline(
     skip_student_eval: bool = False,
     dry_run: bool = False,
     resume: bool = False,
+    force_reset: bool = False,
 ) -> dict[str, Any]:
     out_dir = output_dir or Path(cfg.pipeline.output_root)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1266,6 +1329,7 @@ def run_pipeline(
         tasks = all_tasks[start_from:]
     else:
         resume_summary = None
+        guard_against_unsafe_reset(out_dir, (raw_path, train_path, val_path), force_reset=force_reset)
         for artifact_path in (raw_path, train_path, val_path):
             artifact_path.write_text("", encoding="utf-8")
 
@@ -1611,6 +1675,11 @@ def cli() -> None:
     p.add_argument("--skip-student-eval", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--resume", action="store_true", help="resume from existing output_dir artifacts")
+    p.add_argument(
+        "--force-reset",
+        action="store_true",
+        help="discard existing output_dir artifacts even if checkpoints or summaries exist",
+    )
     args = p.parse_args()
 
     cfg = load_gguf_distill_config(args.config)
@@ -1622,5 +1691,6 @@ def cli() -> None:
         skip_student_eval=args.skip_student_eval,
         dry_run=args.dry_run,
         resume=args.resume,
+        force_reset=args.force_reset,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))

@@ -160,7 +160,14 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
     model.train()
     print(f"policy params: {model.num_parameters()/1e6:.1f}M · ref/old frozen")
 
-    opt = configure_optimizer(model, cfg)
+    offload_store = None
+    if cfg.optim.kind == "nvme_adamw":
+        from elt_lm.offload.hooks import install_offload_into_training
+        opt, offload_store = install_offload_into_training(
+            model, cfg=cfg, run_dir=run_dir,
+        )
+    else:
+        opt = configure_optimizer(model, cfg)
     verifier = CompositeVerifier(task=cfg.grpo.task)
 
     resume_step = 0
@@ -332,6 +339,8 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
 
     save_checkpoint(model, opt, cfg, cfg.total_steps, run_dir)
     telemetry.emit("checkpoint", kind="final", step=cfg.total_steps)
+    if offload_store is not None:
+        offload_store.flush()
     telemetry.close()
     print(f"grpo done in {(time.time()-t0)/60:.1f} min")
 

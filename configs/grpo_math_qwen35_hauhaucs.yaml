@@ -37,6 +37,13 @@ data:
   seq_len: 2048
   tokenizer_path: H:/Qwen3.5-9B-official-hf
 
+optim:
+  kind: nvme_adamw
+
+offload:
+  root: H:/elt_data/runs/grpo_math_qwen35_hauhaucs/offload_nvme
+  min_free_gb: 20.0
+
 lr: 1.0e-6
 min_lr: 1.0e-7
 weight_decay: 0.0

@@ -23,6 +23,19 @@ def test_load_multilane_queue_config() -> None:
     assert [stage.name for stage in cfg.stages] == ["code", "math", "stem_reasoning", "tool_use"]
 
 
+def test_load_all_remaining_hauhaucs_queue_config() -> None:
+    cfg = load_gguf_distill_queue_config("configs/gguf_distill_qwen35_hauhaucs_all_remaining_queue.yaml")
+    assert [stage.name for stage in cfg.stages] == [
+        "detection",
+        "code",
+        "math",
+        "stem_reasoning",
+        "tool_use",
+    ]
+    assert all(stage.resume for stage in cfg.stages)
+    assert all(stage.skip_completed for stage in cfg.stages)
+
+
 def test_load_multilane_sft_and_grpo_configs() -> None:
     for path in [
         "configs/posttrain_code_sft_qwen35_hauhaucs.yaml",

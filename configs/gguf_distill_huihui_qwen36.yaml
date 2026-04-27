@@ -6,8 +6,10 @@ teacher:
   use_mmproj: false
   host: 127.0.0.1
   port: 8091
-  ctx_size: 8192
-  n_gpu_layers: 99
+  # OOM-safe default for 24 GB-class Windows GPUs. Full offload of this
+  # 35B/A3B Q4_K_M model was ~20 GB before KV/cache overhead and failed.
+  ctx_size: 2048
+  n_gpu_layers: 16
   threads: 8
   temperature: 0.2
   top_p: 0.95

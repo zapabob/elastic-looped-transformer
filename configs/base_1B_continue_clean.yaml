@@ -45,9 +45,11 @@ data:
   tokenizer_path: H:/Qwen3.5-9B-official-hf
 
 optim:
-  kind: paged_adamw_8bit
-  paged_bits: 8
-  paged_percentile_clipping: 100
+  kind: nvme_adamw
+
+offload:
+  root: H:/elt_data/runs/base_1B_clean_continue/offload_nvme
+  min_free_gb: 20.0
 
 lr: 2.0e-4
 min_lr: 2.0e-5

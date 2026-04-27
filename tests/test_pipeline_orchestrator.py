@@ -101,3 +101,34 @@ def test_learning_configs_keep_five_minute_three_slot_rolling() -> None:
         assert payload["rolling_ckpt_keep"] == 3, rel
         if "grpo" in rel:
             assert payload["grpo"]["kl_beta"] > 0, rel
+
+
+def test_pipeline_learning_configs_avoid_bitsandbytes_on_windows() -> None:
+    root = Path(__file__).resolve().parents[1]
+    configs = [
+        "configs/base_1B_continue_clean.yaml",
+        "configs/posttrain_detection_sft_huihui_qwen36.yaml",
+        "configs/posttrain_code_sft_qwen35_hauhaucs.yaml",
+        "configs/posttrain_math_sft_qwen35_hauhaucs.yaml",
+        "configs/posttrain_stem_sft_qwen35_hauhaucs.yaml",
+        "configs/posttrain_tool_sft_qwen35_hauhaucs.yaml",
+        "configs/grpo_code_qwen35_hauhaucs.yaml",
+        "configs/grpo_math_qwen35_hauhaucs.yaml",
+        "configs/grpo_tool_qwen35_hauhaucs.yaml",
+    ]
+    for rel in configs:
+        payload = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
+        assert payload["optim"]["kind"] == "nvme_adamw", rel
+        assert payload["offload"]["root"].endswith("/offload_nvme"), rel
+
+
+def test_huihui_35b_distill_config_is_oom_conservative() -> None:
+    root = Path(__file__).resolve().parents[1]
+    for rel in [
+        "configs/gguf_distill_huihui_qwen36.yaml",
+        "configs/gguf_distill_huihui_qwen36_resume_lowmem.yaml",
+        "configs/gguf_distill_huihui_qwen36_resume_smoke.yaml",
+    ]:
+        payload = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
+        assert payload["teacher"]["ctx_size"] <= 2048, rel
+        assert payload["teacher"]["n_gpu_layers"] <= 16, rel
