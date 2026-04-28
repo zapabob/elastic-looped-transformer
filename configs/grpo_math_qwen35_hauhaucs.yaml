@@ -29,12 +29,12 @@ grpo:
   reward_model_ckpt: ""
   reward_alpha: 0.0
   verifier_beta: 1.0
-  prompt_budget: 5000
+  prompt_budget: 512
 
 data:
   train_bin: H:/elt_data/posttrain/math/qwen35_hauhaucs/bin/train.bin
   val_bin: H:/elt_data/posttrain/math/qwen35_hauhaucs/bin/val.bin
-  seq_len: 2048
+  seq_len: 1024
   tokenizer_path: H:/Qwen3.5-9B-official-hf
 
 optim:
@@ -52,8 +52,8 @@ beta2: 0.99
 eps: 1.0e-8
 grad_clip: 1.0
 
-warmup_steps: 50
-total_steps: 6000
+warmup_steps: 4
+total_steps: 64
 lr_schedule: cosine
 
 micro_batch_size: 1
@@ -62,8 +62,8 @@ grad_accum_steps: 1
 dtype: bf16
 
 log_every: 1
-eval_every: 200
-save_every: 200
+eval_every: 16
+save_every: 16
 run_dir: H:/elt_data/runs/grpo_math_qwen35_hauhaucs
 
 rolling_ckpt_interval_sec: 300

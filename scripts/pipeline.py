@@ -11,6 +11,8 @@ The pipeline is intentionally idempotent:
 Manual checks:
 
     uv run --no-sync python scripts/pipeline.py --dry-run
+    uv run --no-sync python scripts/pipeline.py --profile side-lora --dry-run
+    uv run --no-sync python scripts/pipeline.py --profile posttrain-grpo --dry-run
     uv run --no-sync python scripts/pipeline.py --only 00_pretrain_clean --dry-run
     uv run --no-sync python scripts/pipeline.py --no-start-long-train
 """
@@ -22,6 +24,7 @@ from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -40,6 +43,10 @@ LOCK_PATH = STATE_DIR / "pipeline.lock"
 TOKENIZER = "H:/Qwen3.5-9B-official-hf"
 HUIHUI_DETECTION_ROOT = Path("H:/elt_data/gguf_distill/huihui_qwen36_detection")
 HUIHUI_DETECTION_PREP_ROOT = Path("H:/elt_data/posttrain/detection/huihui_qwen36")
+QWEN35_BOOTSTRAP_CKPT = Path("H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt")
+# Use the 8.3 short path because Python's Windows subprocess quoting can pass
+# quoted .bat paths through to cmd.exe as literal escaped quotes.
+VSDEV_CMD = "C:\\PROGRA~1\\MICROS~4\\2022\\COMMUN~1\\Common7\\Tools\\VsDevCmd.bat"
 
 
 class PipelineError(RuntimeError):
@@ -195,6 +202,23 @@ def write_pipeline_status(
     )
 
 
+def vsdev_command(inner_cmd: list[str]) -> list[str]:
+    quoted_inner = subprocess.list2cmdline(inner_cmd)
+    return [
+        "cmd.exe",
+        "/c",
+        (
+            'chcp 65001 >NUL && '
+            f"call {VSDEV_CMD} -arch=x64 -host_arch=x64 && "
+            "set HF_HOME=H:/hf_cache&& "
+            "set CC=cl.exe&& "
+            "set CUDA_HOME=C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.8&& "
+            "set CUDA_PATH=C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.8&& "
+            f"{quoted_inner}"
+        ),
+    ]
+
+
 def run_subprocess(cmd: list[str], *, dry_run: bool = False) -> int:
     print("  $ " + " ".join(cmd))
     if dry_run:
@@ -218,24 +242,87 @@ def train_run_dir(config_path: str | Path) -> Path:
     return Path(str(run_dir))
 
 
-def build_training_command(config_path: str, *, entrypoint: str) -> CommandPlan:
+def build_training_command(
+    config_path: str,
+    *,
+    entrypoint: str,
+    initial_resume: Path | None = None,
+    use_vsdev: bool = False,
+) -> CommandPlan:
     run_dir = train_run_dir(config_path)
     last = run_dir / "last.pt"
     cmd = ["uv", "run", "--no-sync", entrypoint, "--config", config_path]
-    resume = last if last.exists() and last.stat().st_size > 0 else None
+    resume = last if last.exists() and last.stat().st_size > 0 else initial_resume
     if resume is not None:
         cmd += ["--resume", str(resume)]
+    if use_vsdev:
+        cmd = vsdev_command(cmd)
     return CommandPlan(cmd=cmd, run_dir=run_dir, resume_path=resume, long_running=True)
 
 
-def run_training_config(ctx: PipelineContext, config_path: str, *, entrypoint: str) -> None:
-    plan = build_training_command(config_path, entrypoint=entrypoint)
+def offload_root_for_config(config_path: str | Path) -> Path | None:
+    raw = load_train_yaml(config_path)
+    offload = raw.get("offload") or {}
+    root = offload.get("root") if isinstance(offload, dict) else None
+    if not root:
+        return None
+    return Path(str(root))
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def cleanup_completed_offload(config_path: str | Path, *, dry_run: bool = False) -> None:
+    """Delete regenerable NvmeAdamW optimizer state after a completed stage.
+
+    The safety checks are intentionally narrow: only a directory literally named
+    offload_nvme under H:/elt_data/runs can be removed. Checkpoints such as
+    last.pt and adapter exports are outside this tree and are preserved.
+    """
+
+    root = offload_root_for_config(config_path)
+    if root is None:
+        return
+    resolved = root.resolve()
+    allowed = Path("H:/elt_data/runs").resolve()
+    if resolved.name != "offload_nvme" or not _is_relative_to(resolved, allowed):
+        raise PipelineError(f"refusing unsafe offload cleanup path: {root}")
+    if not resolved.exists():
+        return
+    print(f"  cleanup offload: {resolved}")
+    if dry_run:
+        return
+    shutil.rmtree(resolved)
+
+
+def run_training_config(
+    ctx: PipelineContext,
+    config_path: str,
+    *,
+    entrypoint: str,
+    initial_resume: Path | None = None,
+    use_vsdev: bool = False,
+    cleanup_offload_on_success: bool = False,
+) -> None:
+    plan = build_training_command(
+        config_path,
+        entrypoint=entrypoint,
+        initial_resume=initial_resume,
+        use_vsdev=use_vsdev,
+    )
     print(f"  run_dir : {plan.run_dir}")
     print(f"  resume  : {plan.resume_path or '<none>'}")
     if ctx.no_start_long_train:
         print("  skip execution: --no-start-long-train")
         raise LongStageDeferred(f"deferred long-running command: {' '.join(plan.cmd)}")
     run_subprocess(plan.cmd, dry_run=ctx.dry_run)
+    if cleanup_offload_on_success:
+        cleanup_completed_offload(config_path, dry_run=ctx.dry_run)
 
 
 def file_nonempty(path: Path) -> bool:
@@ -336,6 +423,7 @@ def stage_detection_sft(ctx: PipelineContext) -> None:
         ctx,
         "configs/posttrain_detection_sft_huihui_qwen36.yaml",
         entrypoint="elt-train",
+        cleanup_offload_on_success=True,
     )
 
 
@@ -368,7 +456,37 @@ def stage_lane_sft(ctx: PipelineContext) -> None:
             "--lane", lane,
         ]
         run_subprocess(prep_cmd, dry_run=ctx.dry_run)
-        run_training_config(ctx, config_path, entrypoint="elt-train")
+        run_training_config(
+            ctx,
+            config_path,
+            entrypoint="elt-train",
+            cleanup_offload_on_success=True,
+        )
+
+
+def stage_prepare_hauhaucs_lanes(ctx: PipelineContext) -> None:
+    for lane, input_root, output_root, _config_path in LANE_PREP:
+        info = inspect_distill_bundle(input_root)
+        if not (info["train_nonempty"] and info["val_nonempty"]):
+            raise PipelineError(f"lane {lane} distill bundle is missing train/val JSONL: {input_root}")
+        prep_cmd = [
+            "uv", "run", "--no-sync", "elt-prepare-gguf-lane-sft",
+            "--input-root", str(input_root),
+            "--output-root", str(output_root),
+            "--tokenizer", TOKENIZER,
+            "--lane", lane,
+        ]
+        run_subprocess(prep_cmd, dry_run=ctx.dry_run)
+
+
+def stage_hauhaucs_lane_sft_only(ctx: PipelineContext) -> None:
+    for _lane, _input_root, _output_root, config_path in LANE_PREP:
+        run_training_config(
+            ctx,
+            config_path,
+            entrypoint="elt-train",
+            cleanup_offload_on_success=True,
+        )
 
 
 def stage_kl_grpo(ctx: PipelineContext) -> None:
@@ -381,7 +499,64 @@ def stage_kl_grpo(ctx: PipelineContext) -> None:
         kl_beta = float((raw.get("grpo") or {}).get("kl_beta", 0.0))
         if kl_beta <= 0:
             raise PipelineError(f"GRPO config must keep kl_beta > 0: {config_path}")
-        run_training_config(ctx, config_path, entrypoint="elt-train-grpo")
+        run_training_config(
+            ctx,
+            config_path,
+            entrypoint="elt-train-grpo",
+            cleanup_offload_on_success=True,
+        )
+
+
+SIDE_LORA_SFT_CONFIGS: list[str] = [
+    "configs/qwen35_4b_side_lora_code_sft.yaml",
+    "configs/qwen35_4b_side_lora_math_sft.yaml",
+    "configs/qwen35_4b_side_lora_stem_sft.yaml",
+    "configs/qwen35_4b_side_lora_tool_sft.yaml",
+]
+
+
+def stage_side_lora_sft(ctx: PipelineContext) -> None:
+    if not file_nonempty(QWEN35_BOOTSTRAP_CKPT):
+        raise PipelineError(f"missing Qwen3.5-4B bootstrap checkpoint: {QWEN35_BOOTSTRAP_CKPT}")
+    for config_path in SIDE_LORA_SFT_CONFIGS:
+        run_training_config(
+            ctx,
+            config_path,
+            entrypoint="elt-train",
+            initial_resume=QWEN35_BOOTSTRAP_CKPT,
+            use_vsdev=True,
+        )
+
+
+def stage_side_lora_ilsd(ctx: PipelineContext) -> None:
+    code_sft = Path("H:/elt_data/runs/qwen35_4b_side_lora_code_sft/last.pt")
+    initial = code_sft if file_nonempty(code_sft) else QWEN35_BOOTSTRAP_CKPT
+    run_training_config(
+        ctx,
+        "configs/qwen35_4b_side_lora_code_ilsd_l2.yaml",
+        entrypoint="elt-train",
+        initial_resume=initial,
+        use_vsdev=True,
+    )
+
+
+def stage_export_side_lora_adapters(ctx: PipelineContext) -> None:
+    exports = [
+        ("code", Path("H:/elt_data/runs/qwen35_4b_side_lora_code_sft/last.pt")),
+        ("math", Path("H:/elt_data/runs/qwen35_4b_side_lora_math_sft/last.pt")),
+        ("stem", Path("H:/elt_data/runs/qwen35_4b_side_lora_stem_sft/last.pt")),
+        ("tool", Path("H:/elt_data/runs/qwen35_4b_side_lora_tool_sft/last.pt")),
+        ("code_ilsd_l2", Path("H:/elt_data/runs/qwen35_4b_side_lora_code_ilsd_l2/last.pt")),
+    ]
+    for name, ckpt in exports:
+        if not file_nonempty(ckpt):
+            raise PipelineError(f"cannot export missing side LoRA checkpoint: {ckpt}")
+        cmd = [
+            "uv", "run", "--no-sync", "python", "-m", "elt_lm.export_lora_adapter",
+            "--ckpt", str(ckpt),
+            "--out-dir", f"H:/elt_data/adapters/qwen35_4b_side/{name}",
+        ]
+        run_subprocess(cmd, dry_run=ctx.dry_run)
 
 
 def first_existing(paths: list[Path]) -> Path | None:
@@ -410,7 +585,7 @@ def stage_eval_compare(ctx: PipelineContext) -> None:
     run_subprocess(cmd, dry_run=ctx.dry_run)
 
 
-STAGES: list[Stage] = [
+FULL_STAGES: list[Stage] = [
     Stage("00_pretrain_clean", stage_pretrain_clean, long_running=True),
     Stage("01_distill_huihui_detection_upload_or_recover", stage_distill_huihui_detection_upload_or_recover),
     Stage("02_prepare_detection_sft", stage_prepare_detection_sft),
@@ -418,8 +593,37 @@ STAGES: list[Stage] = [
     Stage("04_hauhaucs_multilane_distill", stage_hauhaucs_multilane_distill, long_running=True),
     Stage("05_lane_sft", stage_lane_sft, long_running=True),
     Stage("06_kl_grpo", stage_kl_grpo, long_running=True),
+    Stage("07_side_lora_sft", stage_side_lora_sft, long_running=True),
+    Stage("08_side_lora_ilsd", stage_side_lora_ilsd, long_running=True),
+    Stage("09_export_side_lora_adapters", stage_export_side_lora_adapters),
+    Stage("10_eval_compare", stage_eval_compare),
+]
+
+SIDE_LORA_STAGES: list[Stage] = [
+    Stage("00_side_lora_sft", stage_side_lora_sft, long_running=True),
+    Stage("01_side_lora_ilsd", stage_side_lora_ilsd, long_running=True),
+    Stage("02_export_side_lora_adapters", stage_export_side_lora_adapters),
+]
+
+POSTTRAIN_GRPO_STAGES: list[Stage] = [
+    Stage("00_prepare_detection_sft", stage_prepare_detection_sft),
+    Stage("01_detection_sft", stage_detection_sft, long_running=True),
+    Stage("02_prepare_hauhaucs_lanes", stage_prepare_hauhaucs_lanes),
+    Stage("03_hauhaucs_lane_sft", stage_hauhaucs_lane_sft_only, long_running=True),
+    Stage("04_kl_grpo", stage_kl_grpo, long_running=True),
+    Stage("05_side_lora_ilsd", stage_side_lora_ilsd, long_running=True),
+    Stage("06_export_side_lora_adapters", stage_export_side_lora_adapters),
     Stage("07_eval_compare", stage_eval_compare),
 ]
+
+STAGE_PROFILES: dict[str, list[Stage]] = {
+    "full": FULL_STAGES,
+    "posttrain-grpo": POSTTRAIN_GRPO_STAGES,
+    "side-lora": SIDE_LORA_STAGES,
+}
+
+# Backward-compatible public name used by tests and old scripts.
+STAGES = FULL_STAGES
 
 
 def select_stages(stages: list[Stage], only: str = "", skip: str = "") -> list[Stage]:
@@ -521,6 +725,9 @@ def reset_markers(stages: list[Stage]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", default=os.environ.get("ELT_PIPELINE_PROFILE", "full"),
+                        choices=sorted(STAGE_PROFILES),
+                        help="stage profile to run")
     parser.add_argument("--only", default="", help="comma-separated stage name substrings")
     parser.add_argument("--skip", default="", help="comma-separated stage name substrings")
     parser.add_argument("--dry-run", action="store_true")
@@ -534,7 +741,7 @@ def main() -> None:
         dry_run=args.dry_run,
         no_start_long_train=args.no_start_long_train,
     )
-    stages = select_stages(STAGES, only=args.only, skip=args.skip)
+    stages = select_stages(STAGE_PROFILES[args.profile], only=args.only, skip=args.skip)
     if args.reset:
         reset_markers(stages)
     print_plan(stages, ctx)

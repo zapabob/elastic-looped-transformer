@@ -83,11 +83,23 @@ def plan_placement(model: nn.Module, hw: HardwareProfile,
             plan.param_tier[full_name] = StorageTier.GPU
             plan.bytes_gpu += _param_bytes_bf16(p)
 
-    # RAM-resident composite layers -----------------------------------------
+    # RAM-resident trainable body -------------------------------------------
     composite = getattr(model, composite_attr, None)
     if composite is not None:
         for name, p in composite.named_parameters(recurse=True):
             full_name = f"{composite_attr}.{name}"
+            plan.ram_params.append(full_name)
+            plan.param_tier[full_name] = StorageTier.RAM
+            plan.bytes_ram += _param_bytes_bf16(p)
+    else:
+        # HF-backed side branches do not expose the native `composite` module.
+        # For those models, keep the model weights resident as usual but place
+        # optimizer state for trainable params in the NVMe-backed path.
+        for full_name, p in model.named_parameters(recurse=True):
+            if not p.requires_grad:
+                continue
+            if full_name in plan.param_tier:
+                continue
             plan.ram_params.append(full_name)
             plan.param_tier[full_name] = StorageTier.RAM
             plan.bytes_ram += _param_bytes_bf16(p)

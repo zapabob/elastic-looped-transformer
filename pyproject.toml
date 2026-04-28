@@ -46,6 +46,11 @@ dashboard = [
 offload_8bit = [
     "bitsandbytes>=0.43.0",
 ]
+side_fastpath = [
+    "triton-windows>=3.6.0.post26; sys_platform == 'win32'",
+    "flash-linear-attention>=0.5.0",
+    "causal-conv1d>=1.6.1",
+]
 posttrain = [
     "mypy>=1.11.0",
     "ruff>=0.6.0",
@@ -61,6 +66,7 @@ elt-gguf-distill-queue = "elt_lm.gguf_distill_queue:cli"
 elt-prepare-gguf-lane-sft = "elt_lm.prepare_gguf_lane_sft:cli"
 elt-prepare-gguf-detection-sft = "elt_lm.prepare_gguf_detection_sft:cli"
 elt-bootstrap-qwen35-elt = "elt_lm.bootstrap_qwen35_elt:cli"
+elt-export-lora-adapter = "elt_lm.export_lora_adapter:cli"
 elt-infer = "elt_lm.infer:cli"
 elt-tokenize = "elt_lm.tokenize_data:cli"
 elt-anytime = "elt_lm.eval.anytime_sweep:cli"

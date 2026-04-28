@@ -99,6 +99,13 @@ def bootstrap_qwen35_elt_checkpoint(
             prompt=parity_prompt,
         )
 
+    save_dtype = {
+        "fp32": torch.float32,
+        "bf16": torch.bfloat16,
+        "fp16": torch.float16,
+    }[cfg.model.parity_dtype]
+    model = model.to(dtype=save_dtype)
+
     payload = {
         "step": 0,
         "model": model.state_dict(),

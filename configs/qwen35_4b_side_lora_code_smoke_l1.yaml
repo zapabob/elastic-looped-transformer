@@ -1,0 +1,83 @@
+# LoRA SFT smoke for the HF-backed Qwen3.5-4B ELT side branch.
+# Base weights stay bf16 frozen; only small rank-8 adapters are trainable.
+
+model:
+  backbone_kind: hf_qwen35_looped
+  hf_model_path: huihui-ai/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated
+  source_model_id: huihui-ai/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated
+  language_only: true
+  freeze_vision: true
+  import_lm_head: true
+  parity_dtype: bf16
+  d_model: 2560
+  n_unique_layers: 32
+  n_heads: 16
+  n_kv_heads: 4
+  head_dim: 256
+  d_ff: 9216
+  max_seq_len: 262144
+  rope_theta: 10000000.0
+  tie_word_embeddings: false
+  L_min: 1
+  L_max: 1
+  loop_bootstrap_L_max: 1
+  hf_trainable_mode: lora
+  hf_lora_rank: 8
+  hf_lora_alpha: 16.0
+  hf_lora_dropout: 0.0
+  hf_lora_top_layers: 0
+  hf_save_adapter_only: true
+  hf_adapter_base_ckpt: H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt
+  hf_lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+    - in_proj_qkv
+    - in_proj_z
+    - in_proj_b
+    - in_proj_a
+    - out_proj
+  grad_checkpoint: false
+
+ilsd:
+  enabled: false
+
+data:
+  train_bin: H:/elt_data/posttrain/code/qwen35_hauhaucs/bin/train.bin
+  val_bin: H:/elt_data/posttrain/code/qwen35_hauhaucs/bin/val.bin
+  seq_len: 128
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+optim:
+  kind: adamw
+
+lr: 2.0e-4
+min_lr: 2.0e-5
+weight_decay: 0.0
+beta1: 0.9
+beta2: 0.95
+eps: 1.0e-8
+grad_clip: 1.0
+
+warmup_steps: 1
+total_steps: 5
+lr_schedule: cosine
+
+micro_batch_size: 1
+grad_accum_steps: 1
+
+dtype: bf16
+
+log_every: 1
+eval_every: 5
+save_every: 5
+run_dir: H:/elt_data/runs/qwen35_4b_side_lora_code_smoke_l1
+
+rolling_ckpt_interval_sec: 300
+rolling_ckpt_keep: 3
+
+seed: 62

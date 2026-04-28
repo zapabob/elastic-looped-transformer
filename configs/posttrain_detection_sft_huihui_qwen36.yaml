@@ -21,8 +21,8 @@ ilsd:
   enabled: true
   lambda_init: 0.5
   lambda_final: 0.0
-  lambda_anneal_steps: 4000
-  warmup_steps: 100
+  lambda_anneal_steps: 24
+  warmup_steps: 4
   strict_student_below_teacher: true
   distill_teacher_temp: 1.5
   distill_uniform_mix: 0.001
@@ -58,18 +58,18 @@ beta2: 0.95
 eps: 1.0e-8
 grad_clip: 1.0
 
-warmup_steps: 100
-total_steps: 2000
+warmup_steps: 4
+total_steps: 24
 lr_schedule: cosine
 
 micro_batch_size: 1
-grad_accum_steps: 32
+grad_accum_steps: 4
 
 dtype: bf16
 
-log_every: 10
-eval_every: 100
-save_every: 250
+log_every: 1
+eval_every: 8
+save_every: 8
 run_dir: H:/elt_data/runs/posttrain_detection_sft_huihui_qwen36
 
 rolling_ckpt_interval_sec: 300

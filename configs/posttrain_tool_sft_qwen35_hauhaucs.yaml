@@ -18,8 +18,8 @@ ilsd:
   enabled: true
   lambda_init: 0.4
   lambda_final: 0.0
-  lambda_anneal_steps: 5000
-  warmup_steps: 200
+  lambda_anneal_steps: 40
+  warmup_steps: 4
   strict_student_below_teacher: true
   distill_teacher_temp: 1.5
   distill_uniform_mix: 0.001
@@ -37,7 +37,7 @@ ilsd:
 data:
   train_bin: H:/elt_data/posttrain/tool_use/qwen35_hauhaucs/bin/train.bin
   val_bin: H:/elt_data/posttrain/tool_use/qwen35_hauhaucs/bin/val.bin
-  seq_len: 2048
+  seq_len: 1024
   tokenizer_path: H:/Qwen3.5-9B-official-hf
 
 optim:
@@ -55,18 +55,18 @@ beta2: 0.95
 eps: 1.0e-8
 grad_clip: 1.0
 
-warmup_steps: 200
-total_steps: 3000
+warmup_steps: 4
+total_steps: 40
 lr_schedule: cosine
 
 micro_batch_size: 1
-grad_accum_steps: 32
+grad_accum_steps: 4
 
 dtype: bf16
 
-log_every: 10
-eval_every: 250
-save_every: 500
+log_every: 1
+eval_every: 16
+save_every: 16
 run_dir: H:/elt_data/runs/posttrain_tool_sft_qwen35_hauhaucs
 
 rolling_ckpt_interval_sec: 300

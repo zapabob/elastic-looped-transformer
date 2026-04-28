@@ -1,0 +1,86 @@
+# Short loop-introduction smoke for the HF-backed Qwen3.5-4B ELT side branch.
+# It exercises L=2 ILSD distillation on the prepared HauhauCS code lane only.
+
+model:
+  backbone_kind: hf_qwen35_looped
+  hf_model_path: huihui-ai/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated
+  source_model_id: huihui-ai/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated
+  language_only: true
+  freeze_vision: true
+  import_lm_head: true
+  parity_dtype: bf16
+  d_model: 2560
+  n_unique_layers: 32
+  n_heads: 16
+  n_kv_heads: 4
+  head_dim: 256
+  d_ff: 9216
+  max_seq_len: 262144
+  rope_theta: 10000000.0
+  tie_word_embeddings: false
+  L_min: 1
+  L_max: 2
+  loop_bootstrap_L_max: 1
+  hf_trainable_mode: top_layers
+  hf_trainable_top_layers: 1
+  grad_checkpoint: false
+
+ilsd:
+  enabled: true
+  lambda_init: 1.0
+  lambda_final: 0.0
+  lambda_anneal_steps: 2
+  warmup_steps: 0
+  strict_student_below_teacher: true
+  distill_teacher_temp: 1.2
+  distill_uniform_mix: 0.001
+  entropy_floor_weight: 0.0
+  entropy_floor_start: 0.0
+  entropy_floor_end: 0.0
+  entropy_curvature_weight: 0.0
+  logit_curvature_weight: 0.0
+  logit_curvature_max_positions: 0
+  uncertainty_entropy_min: 0.0
+  uncertainty_top2_gap_max: 1.0
+  local_consistency_weight: 0.0
+  local_consistency_metric: cosine
+
+data:
+  train_bin: H:/elt_data/posttrain/code/qwen35_hauhaucs/bin/train.bin
+  val_bin: H:/elt_data/posttrain/code/qwen35_hauhaucs/bin/val.bin
+  seq_len: 128
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+optim:
+  kind: nvme_adamw
+
+offload:
+  root: H:/elt_data/runs/qwen35_4b_side_sft_code_smoke_l2/offload_nvme
+  min_free_gb: 20.0
+
+lr: 1.0e-6
+min_lr: 1.0e-7
+weight_decay: 0.0
+beta1: 0.9
+beta2: 0.95
+eps: 1.0e-8
+grad_clip: 1.0
+
+warmup_steps: 0
+total_steps: 2
+lr_schedule: cosine
+
+micro_batch_size: 1
+grad_accum_steps: 1
+
+dtype: bf16
+
+log_every: 1
+eval_every: 1
+save_every: 1
+run_dir: H:/elt_data/runs/qwen35_4b_side_sft_code_smoke_l2
+
+rolling_ckpt_interval_sec: 300
+rolling_ckpt_keep: 3
+
+seed: 61

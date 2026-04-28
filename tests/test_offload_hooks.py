@@ -13,6 +13,7 @@ from elt_lm.offload.hooks import (
     LayerTimingInstrumentor,
     install_offload_into_training,
 )
+from elt_lm.offload.placement import StorageTier
 from elt_lm.telemetry import TelemetryWriter
 
 
@@ -106,3 +107,38 @@ def test_install_offload_end_to_end_step(tmp_path: Path):
 
     for p in model.parameters():
         assert torch.isfinite(p).all()
+
+
+def test_install_offload_supports_non_composite_trainable_params(tmp_path: Path):
+    """HF-backed side models do not expose native `composite`, but still need
+    NVMe optimizer state for trainable parameters such as lm_head/top layers.
+    """
+    from elt_lm.config import OffloadConfig
+
+    class TinySideModel(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.frozen = torch.nn.Linear(4, 4)
+            self.trainable = torch.nn.Linear(4, 2)
+            for p in self.frozen.parameters():
+                p.requires_grad_(False)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.trainable(self.frozen(x))
+
+    model = TinySideModel()
+    cfg = TrainConfig()
+    cfg.offload = OffloadConfig(min_free_gb=0.0)
+    opt, store = install_offload_into_training(model, cfg=cfg, run_dir=tmp_path)
+
+    assert store.plan.param_tier["trainable.weight"] is StorageTier.RAM
+    assert store.plan.param_tier["trainable.bias"] is StorageTier.RAM
+    assert "frozen.weight" not in store.plan.param_tier
+
+    x = torch.randn(3, 4)
+    loss = model(x).pow(2).mean()
+    loss.backward()
+    opt.step()
+    store.flush()
+
+    assert list((tmp_path / "offload_nvme").glob("trainable_*__m.f32"))

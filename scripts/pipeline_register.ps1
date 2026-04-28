@@ -12,7 +12,9 @@
 
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [switch]$StartLongTrain
+    [switch]$StartLongTrain,
+    [ValidateSet("full", "posttrain-grpo", "side-lora")]
+    [string]$Profile = "full"
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,9 +32,10 @@ $launcherBody = @"
 `$repoRoot = "$repoRoot"
 `$logDir   = "$logDir"
 `$env:ELT_PIPELINE_START_LONG = "$startLongTrainEnv"
+`$env:ELT_PIPELINE_PROFILE = "$Profile"
 `$stamp    = Get-Date -Format "yyyyMMdd-HHmmss"
 `$logFile  = Join-Path `$logDir "pipeline-`$stamp.log"
-`$pipelineArgs = @()
+`$pipelineArgs = @("--profile", "$Profile")
 if (`$env:ELT_PIPELINE_START_LONG -ne "1") {
     `$pipelineArgs += "--no-start-long-train"
 }

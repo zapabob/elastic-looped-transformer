@@ -43,8 +43,28 @@ class ModelConfig:
     import_lm_head: bool = True
     parity_dtype: Literal["fp32", "bf16", "fp16"] = "fp32"
     loop_bootstrap_L_max: int = 1
-    hf_trainable_mode: Literal["all", "frozen", "norm_lm_head", "top_layers"] = "all"
+    hf_trainable_mode: Literal["all", "frozen", "norm_lm_head", "top_layers", "lora"] = "all"
     hf_trainable_top_layers: int = 0
+    hf_lora_rank: int = 0
+    hf_lora_alpha: float = 16.0
+    hf_lora_dropout: float = 0.0
+    hf_lora_top_layers: int = 0
+    hf_save_adapter_only: bool = False
+    hf_adapter_base_ckpt: str = ""
+    hf_lora_target_modules: list[str] = field(default_factory=lambda: [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "in_proj_qkv",
+        "in_proj_z",
+        "in_proj_b",
+        "in_proj_a",
+        "out_proj",
+    ])
 
     def __post_init__(self) -> None:
         if self.backbone_kind == "native_elt" and self.head_dim is None:

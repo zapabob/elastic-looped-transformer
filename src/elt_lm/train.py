@@ -110,13 +110,19 @@ def _update_last_hardlink(out_dir: Path, path: Path) -> None:
 
 def _build_ckpt_state(model: nn.Module, opt: torch.optim.Optimizer,
                       cfg: TrainConfig, step: int, extra: dict | None = None) -> dict:
+    model_state: dict
+    if cfg.model.hf_save_adapter_only and hasattr(model, "adapter_checkpoint_state"):
+        adapter_state = model.adapter_checkpoint_state()  # type: ignore[attr-defined]
+        model_state = dict(adapter_state)
+    else:
+        model_state = {"model": model.state_dict()}
     state = {
         "step": step,
-        "model": model.state_dict(),
         "optim": opt.state_dict(),
         "cfg": cfg,
         "rng_state": torch.get_rng_state(),
         "wall_time": time.time(),
+        **model_state,
     }
     if torch.cuda.is_available():
         state["cuda_rng_state"] = torch.cuda.get_rng_state_all()
@@ -168,7 +174,12 @@ def load_checkpoint(path: str | Path, model: nn.Module,
                     opt: torch.optim.Optimizer | None = None) -> int:
     """Load a checkpoint, restore RNG state, return the step index to resume from."""
     state = torch.load(path, map_location="cpu", weights_only=False)
-    model.load_state_dict(state["model"] if "model" in state else state)
+    if state.get("adapter_only") and hasattr(model, "load_adapter_checkpoint_state"):
+        model.load_adapter_checkpoint_state(state)  # type: ignore[attr-defined]
+    else:
+        model.load_state_dict(state["model"] if "model" in state else state)
+        if hasattr(model, "remember_adapter_base_checkpoint"):
+            model.remember_adapter_base_checkpoint(path)  # type: ignore[attr-defined]
     if opt is not None and "optim" in state:
         opt.load_state_dict(state["optim"])
     if "rng_state" in state:
@@ -200,6 +211,14 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
     n_total = model.num_parameters()  # type: ignore[call-arg]
     n_non_emb = model.num_parameters(non_embedding=True)  # type: ignore[call-arg]
     print(f"model params: {n_total/1e6:.1f}M total, {n_non_emb/1e6:.1f}M non-embedding")
+
+    if (
+        resume is None
+        and cfg.model.hf_trainable_mode == "lora"
+        and cfg.model.hf_adapter_base_ckpt
+    ):
+        base_step = load_checkpoint(cfg.model.hf_adapter_base_ckpt, model, opt=None)
+        print(f"  initialized LoRA base from {cfg.model.hf_adapter_base_ckpt} (base step {base_step})")
 
     offload_store = None
     if cfg.optim.kind == "nvme_adamw":

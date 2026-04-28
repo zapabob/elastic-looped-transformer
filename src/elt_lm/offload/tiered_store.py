@@ -148,9 +148,14 @@ class TieredParameterStore:
     # --- initialization -----------------------------------------------------
 
     def _iter_composite_named_params(self):
-        composite = getattr(self.model, self.composite_attr)
-        for name, p in composite.named_parameters(recurse=True):
-            yield f"{self.composite_attr}.{name}", p
+        composite = getattr(self.model, self.composite_attr, None)
+        if composite is not None:
+            for name, p in composite.named_parameters(recurse=True):
+                yield f"{self.composite_attr}.{name}", p
+            return
+        for name, p in self.model.named_parameters(recurse=True):
+            if name in self.plan.param_tier:
+                yield name, p
 
     def _wire_ram_masters(self) -> None:
         for full_name, p in self._iter_composite_named_params():
