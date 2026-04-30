@@ -60,6 +60,21 @@ def test_posttrain_grpo_profile_runs_distilled_sft_then_kl_grpo() -> None:
     ]
 
 
+def test_replay_refresh_profile_runs_clean_replay_then_mixed_sft_and_grpo() -> None:
+    mod = _load_pipeline_module()
+
+    names = [stage.name for stage in mod.STAGE_PROFILES["replay-refresh"]]
+
+    assert names == [
+        "00_native_clean_replay_pretrain",
+        "01_prepare_mixed_lane_sft",
+        "02_native_mixed_lane_sft",
+        "03_native_kl_grpo",
+        "04_side_lora_mixed_sft",
+        "05_eval_compare",
+    ]
+
+
 def test_build_training_command_adds_resume_when_last_exists(tmp_path: Path) -> None:
     mod = _load_pipeline_module()
     run_dir = tmp_path / "run"

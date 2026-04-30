@@ -1,0 +1,69 @@
+# Dense replay-mixed SFT for math lane.
+
+model:
+  vocab_size: 248320
+  d_model: 1792
+  n_unique_layers: 28
+  n_heads: 28
+  head_dim: 64
+  d_ff: 4864
+  max_seq_len: 2048
+  rope_theta: 10000.0
+  tie_word_embeddings: true
+  L_min: 1
+  L_max: 4
+  grad_checkpoint: true
+
+ilsd:
+  enabled: true
+  lambda_init: 0.25
+  lambda_final: 0.0
+  lambda_anneal_steps: 64
+  warmup_steps: 4
+  strict_student_below_teacher: true
+  distill_teacher_temp: 1.5
+  distill_uniform_mix: 0.0005
+  entropy_floor_weight: 0.005
+  entropy_floor_start: 0.18
+  entropy_floor_end: 0.08
+  entropy_curvature_weight: 0.01
+  logit_curvature_weight: 0.0025
+  logit_curvature_max_positions: 32
+  uncertainty_entropy_min: 0.55
+  uncertainty_top2_gap_max: 0.15
+  local_consistency_weight: 0.005
+  local_consistency_metric: cosine
+
+data:
+  train_bin: H:/elt_data/posttrain_mixed/math/qwen35_hauhaucs_replay/bin/train.bin
+  val_bin: H:/elt_data/posttrain_mixed/math/qwen35_hauhaucs_replay/bin/val.bin
+  seq_len: 1024
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+optim:
+  kind: nvme_adamw
+
+offload:
+  root: H:/elt_data/runs/posttrain_math_sft_qwen35_hauhaucs_replay/offload_nvme
+  min_free_gb: 0.0
+
+lr: 6.0e-5
+min_lr: 6.0e-6
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+eps: 1.0e-8
+grad_clip: 1.0
+warmup_steps: 4
+total_steps: 64
+lr_schedule: cosine
+micro_batch_size: 1
+grad_accum_steps: 4
+dtype: bf16
+log_every: 1
+eval_every: 16
+save_every: 16
+run_dir: H:/elt_data/runs/posttrain_math_sft_qwen35_hauhaucs_replay
+rolling_ckpt_interval_sec: 300
+rolling_ckpt_keep: 3
+seed: 151

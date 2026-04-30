@@ -13,6 +13,7 @@ Manual checks:
     uv run --no-sync python scripts/pipeline.py --dry-run
     uv run --no-sync python scripts/pipeline.py --profile side-lora --dry-run
     uv run --no-sync python scripts/pipeline.py --profile posttrain-grpo --dry-run
+    uv run --no-sync python scripts/pipeline.py --profile replay-refresh --dry-run
     uv run --no-sync python scripts/pipeline.py --only 00_pretrain_clean --dry-run
     uv run --no-sync python scripts/pipeline.py --no-start-long-train
 """
@@ -492,6 +493,13 @@ LANE_PREP: list[tuple[str, Path, Path, str]] = [
     ("tool_use", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_tool_use"), Path("H:/elt_data/posttrain/tool_use/qwen35_hauhaucs"), "configs/posttrain_tool_sft_qwen35_hauhaucs.yaml"),
 ]
 
+MIXED_LANE_PREP: list[tuple[str, Path, Path, str]] = [
+    ("code", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_code"), Path("H:/elt_data/posttrain_mixed/code/qwen35_hauhaucs_replay"), "configs/posttrain_code_sft_qwen35_hauhaucs_replay.yaml"),
+    ("math", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_math"), Path("H:/elt_data/posttrain_mixed/math/qwen35_hauhaucs_replay"), "configs/posttrain_math_sft_qwen35_hauhaucs_replay.yaml"),
+    ("stem_reasoning", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_stem_reasoning"), Path("H:/elt_data/posttrain_mixed/stem_reasoning/qwen35_hauhaucs_replay"), "configs/posttrain_stem_sft_qwen35_hauhaucs_replay.yaml"),
+    ("tool_use", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_tool_use"), Path("H:/elt_data/posttrain_mixed/tool_use/qwen35_hauhaucs_replay"), "configs/posttrain_tool_sft_qwen35_hauhaucs_replay.yaml"),
+]
+
 
 def stage_lane_sft(ctx: PipelineContext) -> None:
     for lane, input_root, output_root, config_path in LANE_PREP:
@@ -544,12 +552,8 @@ def stage_hauhaucs_lane_sft_only(ctx: PipelineContext) -> None:
         )
 
 
-def stage_kl_grpo(ctx: PipelineContext) -> None:
-    for config_path in [
-        "configs/grpo_code_qwen35_hauhaucs.yaml",
-        "configs/grpo_math_qwen35_hauhaucs.yaml",
-        "configs/grpo_tool_qwen35_hauhaucs.yaml",
-    ]:
+def run_grpo_configs(ctx: PipelineContext, config_paths: list[str]) -> None:
+    for config_path in config_paths:
         raw = load_train_yaml(config_path)
         kl_beta = float((raw.get("grpo") or {}).get("kl_beta", 0.0))
         if kl_beta <= 0:
@@ -567,6 +571,17 @@ def stage_kl_grpo(ctx: PipelineContext) -> None:
         )
 
 
+def stage_kl_grpo(ctx: PipelineContext) -> None:
+    run_grpo_configs(
+        ctx,
+        [
+            "configs/grpo_code_qwen35_hauhaucs.yaml",
+            "configs/grpo_math_qwen35_hauhaucs.yaml",
+            "configs/grpo_tool_qwen35_hauhaucs.yaml",
+        ],
+    )
+
+
 SIDE_LORA_SFT_CONFIGS: list[str] = [
     "configs/qwen35_4b_side_lora_code_sft.yaml",
     "configs/qwen35_4b_side_lora_math_sft.yaml",
@@ -574,11 +589,25 @@ SIDE_LORA_SFT_CONFIGS: list[str] = [
     "configs/qwen35_4b_side_lora_tool_sft.yaml",
 ]
 
+SIDE_LORA_MIXED_SFT_CONFIGS: list[str] = [
+    "configs/qwen35_4b_side_lora_code_sft_replay.yaml",
+    "configs/qwen35_4b_side_lora_math_sft_replay.yaml",
+    "configs/qwen35_4b_side_lora_stem_sft_replay.yaml",
+    "configs/qwen35_4b_side_lora_tool_sft_replay.yaml",
+]
+
 
 def stage_side_lora_sft(ctx: PipelineContext) -> None:
+    run_side_lora_sft_configs(ctx, SIDE_LORA_SFT_CONFIGS)
+
+
+def run_side_lora_sft_configs(ctx: PipelineContext, config_paths: list[str]) -> None:
     if not file_nonempty(QWEN35_BOOTSTRAP_CKPT):
         raise PipelineError(f"missing Qwen3.5-4B bootstrap checkpoint: {QWEN35_BOOTSTRAP_CKPT}")
-    for config_path in SIDE_LORA_SFT_CONFIGS:
+    for config_path in config_paths:
+        if training_run_complete(config_path):
+            print(f"  skip completed training config: {config_path}")
+            continue
         run_training_config(
             ctx,
             config_path,
@@ -628,9 +657,13 @@ def first_existing(paths: list[Path]) -> Path | None:
 
 def stage_eval_compare(ctx: PipelineContext) -> None:
     ckpt = first_existing([
+        Path("H:/elt_data/runs/grpo_tool_qwen35_hauhaucs_replay/last.pt"),
+        Path("H:/elt_data/runs/grpo_math_qwen35_hauhaucs_replay/last.pt"),
+        Path("H:/elt_data/runs/grpo_code_qwen35_hauhaucs_replay/last.pt"),
         Path("H:/elt_data/runs/grpo_tool_qwen35_hauhaucs/last.pt"),
         Path("H:/elt_data/runs/grpo_math_qwen35_hauhaucs/last.pt"),
         Path("H:/elt_data/runs/grpo_code_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/base_1B_clean_replay_phase2/last.pt"),
         Path("H:/elt_data/runs/posttrain_detection_sft_huihui_qwen36/last.pt"),
         Path("H:/elt_data/runs/base_1B_clean_continue/last.pt"),
     ])
@@ -643,6 +676,85 @@ def stage_eval_compare(ctx: PipelineContext) -> None:
         "--L-list", "1,2,3,4",
     ]
     run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_native_clean_replay_pretrain(ctx: PipelineContext) -> None:
+    initial = first_existing([
+        Path("H:/elt_data/runs/grpo_tool_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/grpo_math_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/grpo_code_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/posttrain_tool_sft_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/posttrain_stem_sft_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/posttrain_math_sft_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/posttrain_code_sft_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/posttrain_detection_sft_huihui_qwen36/last.pt"),
+        Path("H:/elt_data/runs/base_1B_clean_continue/last.pt"),
+    ])
+    run_training_config(
+        ctx,
+        "configs/base_1B_clean_replay_phase2.yaml",
+        entrypoint="elt-train",
+        initial_resume=initial,
+        cleanup_offload_on_success=True,
+    )
+
+
+def stage_prepare_mixed_lane_sft(ctx: PipelineContext) -> None:
+    for lane, input_root, output_root, _config_path in MIXED_LANE_PREP:
+        info = inspect_distill_bundle(input_root)
+        if not (info["train_nonempty"] and info["val_nonempty"]):
+            raise PipelineError(f"lane {lane} distill bundle is missing train/val JSONL: {input_root}")
+        train_bin = output_root / "bin" / "train.bin"
+        val_bin = output_root / "bin" / "val.bin"
+        summary = output_root / "prep_summary.json"
+        if file_nonempty(train_bin) and file_nonempty(val_bin) and file_nonempty(summary):
+            print(f"  skip prepared mixed lane: {lane}")
+            continue
+        cmd = [
+            "uv", "run", "--no-sync", "python", "-m", "elt_lm.prepare_mixed_lane_sft",
+            "--input-root", str(input_root),
+            "--output-root", str(output_root),
+            "--tokenizer", TOKENIZER,
+            "--lane", lane,
+        ]
+        run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_native_mixed_lane_sft(ctx: PipelineContext) -> None:
+    initial = first_existing([
+        Path("H:/elt_data/runs/base_1B_clean_replay_phase2/last.pt"),
+        Path("H:/elt_data/runs/grpo_tool_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/grpo_math_qwen35_hauhaucs/last.pt"),
+        Path("H:/elt_data/runs/grpo_code_qwen35_hauhaucs/last.pt"),
+    ])
+    for _lane, _input_root, _output_root, config_path in MIXED_LANE_PREP:
+        if training_run_complete(config_path):
+            print(f"  skip completed training config: {config_path}")
+            prune_completed_checkpoints(config_path, dry_run=ctx.dry_run)
+            cleanup_completed_offload(config_path, dry_run=ctx.dry_run)
+            continue
+        run_training_config(
+            ctx,
+            config_path,
+            entrypoint="elt-train",
+            initial_resume=initial,
+            cleanup_offload_on_success=True,
+        )
+
+
+def stage_native_replay_kl_grpo(ctx: PipelineContext) -> None:
+    run_grpo_configs(
+        ctx,
+        [
+            "configs/grpo_code_qwen35_hauhaucs_replay.yaml",
+            "configs/grpo_math_qwen35_hauhaucs_replay.yaml",
+            "configs/grpo_tool_qwen35_hauhaucs_replay.yaml",
+        ],
+    )
+
+
+def stage_side_lora_mixed_sft(ctx: PipelineContext) -> None:
+    run_side_lora_sft_configs(ctx, SIDE_LORA_MIXED_SFT_CONFIGS)
 
 
 FULL_STAGES: list[Stage] = [
@@ -676,9 +788,19 @@ POSTTRAIN_GRPO_STAGES: list[Stage] = [
     Stage("07_eval_compare", stage_eval_compare),
 ]
 
+REPLAY_REFRESH_STAGES: list[Stage] = [
+    Stage("00_native_clean_replay_pretrain", stage_native_clean_replay_pretrain, long_running=True),
+    Stage("01_prepare_mixed_lane_sft", stage_prepare_mixed_lane_sft),
+    Stage("02_native_mixed_lane_sft", stage_native_mixed_lane_sft, long_running=True),
+    Stage("03_native_kl_grpo", stage_native_replay_kl_grpo, long_running=True),
+    Stage("04_side_lora_mixed_sft", stage_side_lora_mixed_sft, long_running=True),
+    Stage("05_eval_compare", stage_eval_compare),
+]
+
 STAGE_PROFILES: dict[str, list[Stage]] = {
     "full": FULL_STAGES,
     "posttrain-grpo": POSTTRAIN_GRPO_STAGES,
+    "replay-refresh": REPLAY_REFRESH_STAGES,
     "side-lora": SIDE_LORA_STAGES,
 }
 

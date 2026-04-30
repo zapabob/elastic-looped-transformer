@@ -1,0 +1,66 @@
+# Verifier-dominant KL GRPO for replay-mixed code lane.
+
+model:
+  vocab_size: 248320
+  d_model: 1792
+  n_unique_layers: 28
+  n_heads: 28
+  head_dim: 64
+  d_ff: 4864
+  max_seq_len: 2048
+  tie_word_embeddings: true
+  L_min: 1
+  L_max: 4
+  grad_checkpoint: true
+
+grpo:
+  enabled: true
+  init_ckpt: H:/elt_data/runs/posttrain_code_sft_qwen35_hauhaucs_replay/last.pt
+  prompts_file: H:/elt_data/posttrain_mixed/code/qwen35_hauhaucs_replay/benchmarks/mixed_code_val_cases.jsonl
+  task: python_exec
+  group_size: 4
+  rollout_temperature: 1.0
+  rollout_top_k: 64
+  rollout_max_new_tokens: 192
+  rollout_L: 4
+  clip_eps: 0.2
+  kl_beta: 0.05
+  mu_steps: 1
+  reward_model_ckpt: ""
+  reward_alpha: 0.0
+  verifier_beta: 1.0
+  prompt_budget: 512
+
+data:
+  train_bin: H:/elt_data/posttrain_mixed/code/qwen35_hauhaucs_replay/bin/train.bin
+  val_bin: H:/elt_data/posttrain_mixed/code/qwen35_hauhaucs_replay/bin/val.bin
+  seq_len: 1024
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+optim:
+  kind: nvme_adamw
+
+offload:
+  root: H:/elt_data/runs/grpo_code_qwen35_hauhaucs_replay/offload_nvme
+  min_free_gb: 0.0
+
+lr: 1.0e-6
+min_lr: 1.0e-7
+weight_decay: 0.0
+beta1: 0.9
+beta2: 0.99
+eps: 1.0e-8
+grad_clip: 1.0
+warmup_steps: 4
+total_steps: 64
+lr_schedule: cosine
+micro_batch_size: 1
+grad_accum_steps: 1
+dtype: bf16
+log_every: 1
+eval_every: 16
+save_every: 16
+run_dir: H:/elt_data/runs/grpo_code_qwen35_hauhaucs_replay
+rolling_ckpt_interval_sec: 300
+rolling_ckpt_keep: 3
+seed: 154
