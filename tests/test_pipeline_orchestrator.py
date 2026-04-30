@@ -96,6 +96,83 @@ def test_build_training_command_uses_initial_resume_and_vsdev(tmp_path: Path) ->
     assert str(base) in plan.cmd[2]
 
 
+def test_training_run_complete_detects_final_checkpoint(tmp_path: Path) -> None:
+    mod = _load_pipeline_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "last.pt").write_bytes(b"checkpoint")
+    (run_dir / "metrics.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"event": "train_step", "step": 47}),
+                json.dumps({"event": "checkpoint", "kind": "final", "step": 48}),
+                json.dumps({"event": "run_end"}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        f"run_dir: {run_dir.as_posix()}\ntotal_steps: 48\n",
+        encoding="utf-8",
+    )
+
+    assert mod.training_run_complete(str(cfg)) is True
+
+
+def test_training_run_complete_rejects_partial_checkpoint(tmp_path: Path) -> None:
+    mod = _load_pipeline_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "last.pt").write_bytes(b"checkpoint")
+    (run_dir / "metrics.jsonl").write_text(
+        json.dumps({"event": "checkpoint", "kind": "rolling", "step": 47}),
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        f"run_dir: {run_dir.as_posix()}\ntotal_steps: 48\n",
+        encoding="utf-8",
+    )
+
+    assert mod.training_run_complete(str(cfg)) is False
+
+
+def test_prune_completed_checkpoints_keeps_last_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    allowed = tmp_path / "elt_data" / "runs"
+    run_dir = allowed / "complete_run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "last.pt").write_bytes(b"last")
+    (run_dir / "rolling_0.pt").write_bytes(b"rolling")
+    (run_dir / "step_0000048.pt").write_bytes(b"step")
+    (run_dir / "metrics.jsonl").write_text(
+        json.dumps({"event": "checkpoint", "kind": "final", "step": 48}),
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        f"run_dir: {run_dir.as_posix()}\ntotal_steps: 48\n",
+        encoding="utf-8",
+    )
+
+    def fake_allowed_path(value: str) -> Path:
+        if value == "H:/elt_data/runs":
+            return allowed
+        return Path(value)
+
+    monkeypatch.setattr(mod, "Path", fake_allowed_path)
+
+    mod.prune_completed_checkpoints(str(cfg), dry_run=False)
+
+    assert (run_dir / "last.pt").exists()
+    assert not (run_dir / "rolling_0.pt").exists()
+    assert not (run_dir / "step_0000048.pt").exists()
+
+
 def test_cleanup_completed_offload_only_allows_run_offload_dirs(
     monkeypatch,
     tmp_path: Path,

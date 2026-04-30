@@ -300,6 +300,55 @@ def cleanup_completed_offload(config_path: str | Path, *, dry_run: bool = False)
     shutil.rmtree(resolved)
 
 
+def prune_completed_checkpoints(config_path: str | Path, *, dry_run: bool = False) -> None:
+    """Keep last.pt for completed stages and remove bulky duplicate snapshots."""
+
+    if not training_run_complete(config_path):
+        return
+    raw = load_train_yaml(config_path)
+    run_dir_value = raw.get("run_dir")
+    if not run_dir_value:
+        return
+    run_dir = Path(str(run_dir_value)).resolve()
+    allowed = Path("H:/elt_data/runs").resolve()
+    if not _is_relative_to(run_dir, allowed):
+        raise PipelineError(f"refusing unsafe checkpoint prune path: {run_dir_value}")
+    for path in sorted(run_dir.glob("rolling_*.pt")) + sorted(run_dir.glob("step_*.pt")):
+        if not path.is_file():
+            continue
+        print(f"  prune checkpoint: {path}")
+        if not dry_run:
+            path.unlink()
+
+
+def training_run_complete(config_path: str | Path) -> bool:
+    """Return True when a training run already emitted a final checkpoint event."""
+
+    raw = load_train_yaml(config_path)
+    run_dir = raw.get("run_dir")
+    total_steps = int(raw.get("total_steps", 0) or 0)
+    if not run_dir or total_steps <= 0:
+        return False
+    metrics = Path(str(run_dir)) / "metrics.jsonl"
+    last = Path(str(run_dir)) / "last.pt"
+    if not file_nonempty(metrics) or not file_nonempty(last):
+        return False
+    try:
+        lines = metrics.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    for line in reversed(lines):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if row.get("event") == "checkpoint" and row.get("kind") == "final":
+            return int(row.get("step", -1) or -1) >= total_steps
+        if row.get("event") == "run_end":
+            continue
+    return False
+
+
 def run_training_config(
     ctx: PipelineContext,
     config_path: str,
@@ -322,6 +371,7 @@ def run_training_config(
         raise LongStageDeferred(f"deferred long-running command: {' '.join(plan.cmd)}")
     run_subprocess(plan.cmd, dry_run=ctx.dry_run)
     if cleanup_offload_on_success:
+        prune_completed_checkpoints(config_path, dry_run=ctx.dry_run)
         cleanup_completed_offload(config_path, dry_run=ctx.dry_run)
 
 
@@ -481,6 +531,11 @@ def stage_prepare_hauhaucs_lanes(ctx: PipelineContext) -> None:
 
 def stage_hauhaucs_lane_sft_only(ctx: PipelineContext) -> None:
     for _lane, _input_root, _output_root, config_path in LANE_PREP:
+        if training_run_complete(config_path):
+            print(f"  skip completed training config: {config_path}")
+            prune_completed_checkpoints(config_path, dry_run=ctx.dry_run)
+            cleanup_completed_offload(config_path, dry_run=ctx.dry_run)
+            continue
         run_training_config(
             ctx,
             config_path,
@@ -499,6 +554,11 @@ def stage_kl_grpo(ctx: PipelineContext) -> None:
         kl_beta = float((raw.get("grpo") or {}).get("kl_beta", 0.0))
         if kl_beta <= 0:
             raise PipelineError(f"GRPO config must keep kl_beta > 0: {config_path}")
+        if training_run_complete(config_path):
+            print(f"  skip completed training config: {config_path}")
+            prune_completed_checkpoints(config_path, dry_run=ctx.dry_run)
+            cleanup_completed_offload(config_path, dry_run=ctx.dry_run)
+            continue
         run_training_config(
             ctx,
             config_path,

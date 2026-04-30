@@ -48,7 +48,7 @@ optim:
 
 offload:
   root: H:/elt_data/runs/posttrain_detection_sft_huihui_qwen36/offload_nvme
-  min_free_gb: 20.0
+  min_free_gb: 0.0
 
 lr: 6.0e-5
 min_lr: 6.0e-6

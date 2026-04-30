@@ -42,7 +42,7 @@ optim:
 
 offload:
   root: H:/elt_data/runs/grpo_tool_qwen35_hauhaucs/offload_nvme
-  min_free_gb: 20.0
+  min_free_gb: 0.0
 
 lr: 1.0e-6
 min_lr: 1.0e-7
