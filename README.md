@@ -87,6 +87,55 @@ input_ids ──embed──► x₀ ──g_Θ──► x₁ ──g_Θ──►
 Token embedding (248 K × d_model) dominates the parameter count at smaller
 scales; the interesting number is **non-emb**, which is what gets iterated.
 
+## ILSD stability objective
+
+ELT is evaluated as a loop-wise refinement system, not only as a small dense LM.
+The teacher is the deepest loop and the student is an intermediate loop:
+
+```text
+z_T = logits at L_T = L_max
+z_S = logits at L_S ~ U(L_min, L_max)
+p_T = stopgrad(softmax(z_T / tau_T))
+p_S = softmax(z_S)
+L_ILSD = L_GT(T) + lambda L_GT(S) + (1 - lambda) CE(p_T, p_S)
+```
+
+The `stopgrad` on `p_T` is intentional. It prevents the deepest loop from being
+pulled around by the student during self-distillation, keeping the maximum-loop
+path as the local teacher. The current stabilizer stack keeps teacher-only
+temperature and masked soft CE, then adds entropy/loop-trajectory regularizers
+so additional loops refine rather than collapse:
+
+- **teacher-only temperature** smooths the teacher target without hiding the
+  student's actual sharpness.
+- **entropy floor** penalizes low-entropy collapse when the model becomes
+  confidently wrong.
+- **Delta^2 entropy curvature** penalizes abrupt entropy bends along the loop
+  axis `L`, matching the ELT idea of incremental refinement.
+- **sampled Delta^2 logit curvature** can be enabled after entropy metrics are
+  stable, using sampled/top-k vocab slices instead of full-vocab curvature.
+
+The important design choice is that safety and capability alignment are handled
+mostly by data selection, lane verifiers, KL-constrained GRPO, and evaluation
+rather than by blanket refusal behavior baked into the base model.
+
+## Anytime loop evaluation
+
+The key experimental question is not merely whether `L=4` scores higher than
+`L=1`, but whether deeper loops correct shallow mistakes without overthinking
+correct answers. `elt-anytime` now emits benchmark refinement telemetry:
+
+```text
+loop_gain(L=k)       = score(L=k) - score(L=1)
+marginal_gain(L=k)   = score(L=k) - score(L=k-1)
+self_correction_rate = count(L=1 wrong and L=k correct) / N
+overthinking_rate    = count(L=1 correct and L=k wrong) / N
+```
+
+For each benchmark, track these alongside per-loop accuracy, entropy trajectory,
+latency/token, tokens/sec, and VRAM. A healthy ELT run should increase
+self-correction faster than overthinking as `L` grows.
+
 ## 1 B training on a 12 GB card
 
 ```bash

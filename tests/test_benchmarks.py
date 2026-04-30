@@ -149,6 +149,92 @@ def test_anytime_sweep_runs_benchmark_manifest(tmp_path: Path, monkeypatch) -> N
     assert {int(e["L"]) for e in bench_events} == {1, 2}
     assert all(abs(float(e["score"]) - 1.0) < 1e-6 for e in bench_events)
     assert all(abs(float(e["attempts_per_case"]) - 1.0) < 1e-6 for e in bench_events)
+    assert all("loop_gain" in e for e in bench_events)
+    assert all("marginal_gain" in e for e in bench_events)
+    assert all("self_correction_rate" in e for e in bench_events)
+    assert all("overthinking_rate" in e for e in bench_events)
+
+
+def test_anytime_sweep_reports_self_correction_metrics(tmp_path: Path, monkeypatch) -> None:
+    ckpt = tmp_path / "tiny.pt"
+    cfg = TrainConfig(
+        model=ModelConfig(
+            vocab_size=128,
+            d_model=32,
+            n_unique_layers=2,
+            n_heads=2,
+            head_dim=16,
+            d_ff=64,
+            max_seq_len=32,
+            tie_word_embeddings=True,
+            grad_checkpoint=False,
+            L_min=1,
+            L_max=2,
+        ),
+        data=DataConfig(tokenizer_path="unused"),
+    )
+    model = ELTLanguageModel(cfg.model)
+    torch.save({"cfg": cfg, "model": model.state_dict()}, ckpt)
+
+    bench_cases = tmp_path / "bench.jsonl"
+    _write_jsonl(bench_cases, [{"prompt": "Choose one", "reference": "A"}])
+    manifest = tmp_path / "bench.yaml"
+    manifest.write_text(yaml.safe_dump({
+        "benchmarks": [{
+            "name": "choice_smoke",
+            "kind": "jsonl",
+            "task": "exact_match",
+            "path": str(bench_cases),
+            "prompt_field": "prompt",
+            "reference_field": "reference",
+        }],
+    }), encoding="utf-8")
+
+    def _fake_from_pretrained(*_args, **_kwargs):
+        return _FakeTokenizer()
+
+    def _fake_generate(self, input_ids, **kwargs):
+        token = 7 if int(kwargs["L"]) == 2 else 5
+        resp = torch.tensor([[token]], dtype=input_ids.dtype, device=input_ids.device)
+        return torch.cat([input_ids, resp], dim=-1)
+
+    monkeypatch.setattr("transformers.AutoTokenizer.from_pretrained", _fake_from_pretrained)
+    monkeypatch.setattr(ELTLanguageModel, "generate", _fake_generate)
+
+    run_dir = tmp_path / "run"
+    args = argparse.Namespace(
+        ckpt=str(ckpt),
+        val_bin="",
+        benchmark_manifest=str(manifest),
+        seq_len=0,
+        batch_size=1,
+        max_batches=1,
+        bench_max_new_tokens=8,
+        bench_temperature=0.0,
+        bench_top_k=1,
+        bench_num_samples=1,
+        bench_verifier_retries=0,
+        out_csv=str(tmp_path / "bench.csv"),
+        run_dir=str(run_dir),
+    )
+    run(args)
+
+    events = [
+        json.loads(line)
+        for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    bench_by_l = {
+        int(e["L"]): e
+        for e in events
+        if e["event"] == "benchmark_eval"
+    }
+    assert float(bench_by_l[1]["score"]) == 0.0
+    assert float(bench_by_l[2]["score"]) == 1.0
+    assert float(bench_by_l[2]["loop_gain"]) == 1.0
+    assert float(bench_by_l[2]["marginal_gain"]) == 1.0
+    assert float(bench_by_l[2]["self_correction_rate"]) == 1.0
+    assert float(bench_by_l[2]["overthinking_rate"]) == 0.0
 
 
 def test_evaluate_benchmark_retries_until_verifier_passes(monkeypatch) -> None:

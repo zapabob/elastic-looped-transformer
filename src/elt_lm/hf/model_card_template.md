@@ -40,6 +40,40 @@ Paper equations preserved verbatim in code (`src/elt_lm/`):
 - `L_int ~ U(L_min, L_max)` stochastic student sampling
 - `λ` linear curriculum 1 → 0
 
+## ILSD stability objective
+
+This checkpoint family treats ELT as a loop-wise refinement system. The deepest
+loop is the local teacher and an intermediate loop is the student:
+
+```text
+z_T = logits at L_T = L_max
+z_S = logits at L_S ~ U(L_min, L_max)
+p_T = stopgrad(softmax(z_T / tau_T))
+p_S = softmax(z_S)
+L_ILSD = L_GT(T) + lambda L_GT(S) + (1 - lambda) CE(p_T, p_S)
+```
+
+The stop-gradient teacher is intentional: it keeps the maximum-loop path from
+being pulled around by the sampled student loop. Teacher-only temperature,
+masked soft CE, entropy-floor regularization, Delta^2 entropy curvature, and
+sampled Delta^2 logit curvature are used as stabilizers so larger L refines
+instead of simply sharpening into collapse.
+
+## Anytime loop evaluation
+
+The key question is whether deeper loops repair shallow mistakes without
+overthinking correct answers. `elt-anytime` benchmark telemetry includes:
+
+```text
+loop_gain(L=k)       = score(L=k) - score(L=1)
+marginal_gain(L=k)   = score(L=k) - score(L=k-1)
+self_correction_rate = count(L=1 wrong and L=k correct) / N
+overthinking_rate    = count(L=1 correct and L=k wrong) / N
+```
+
+Track these with per-loop accuracy, entropy trajectory, latency/token,
+tokens/sec, and VRAM before claiming test-time scaling.
+
 ## Usage
 
 ```python

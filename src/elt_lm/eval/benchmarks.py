@@ -79,6 +79,7 @@ class BenchmarkResult:
     latency_ms_per_case: float
     tokens_per_sec: float
     attempts_per_case: float
+    case_correct: list[int] = field(default_factory=list)
 
 
 def load_benchmark_manifest(path: str | Path) -> list[BenchmarkSpec]:
@@ -241,6 +242,7 @@ def evaluate_benchmark(
         raise RuntimeError(f"benchmark {spec.name} has no runnable cases")
 
     correct = 0
+    case_correct: list[int] = []
     total_resp_tokens = 0
     total_wall = 0.0
     total_attempts = 0
@@ -285,7 +287,9 @@ def evaluate_benchmark(
             retries_left -= 1
             attempts_left = 1
 
-        correct += int(best_score > 0.0)
+        is_correct = int(best_score > 0.0)
+        correct += is_correct
+        case_correct.append(is_correct)
 
     total = len(cases)
     return BenchmarkResult(
@@ -298,4 +302,5 @@ def evaluate_benchmark(
         latency_ms_per_case=(total_wall / max(1, total)) * 1000.0,
         tokens_per_sec=total_resp_tokens / max(1e-9, total_wall),
         attempts_per_case=total_attempts / max(1, total),
+        case_correct=case_correct,
     )

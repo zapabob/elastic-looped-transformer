@@ -14,7 +14,11 @@ from torch.utils.data import DataLoader
 
 from elt_lm.config import TrainConfig
 from elt_lm.data import PackedTokenDataset
-from elt_lm.eval.benchmarks import evaluate_benchmark, load_benchmark_manifest
+from elt_lm.eval.benchmarks import (
+    BenchmarkResult,
+    evaluate_benchmark,
+    load_benchmark_manifest,
+)
 from elt_lm.model import ELTLanguageModel
 from elt_lm.telemetry import make_writer
 
@@ -80,6 +84,42 @@ def eval_at_L(
     }
 
 
+def _loop_refinement_metrics(
+    result: BenchmarkResult,
+    *,
+    baseline: BenchmarkResult,
+    previous: BenchmarkResult | None,
+) -> dict[str, float | None]:
+    """Measure whether deeper loops fix shallow-loop mistakes or overthink them."""
+    loop_gain = result.accuracy - baseline.accuracy
+    marginal_gain = None if previous is None else result.accuracy - previous.accuracy
+    metrics: dict[str, float | None] = {
+        "loop_gain": loop_gain,
+        "marginal_gain": marginal_gain if marginal_gain is not None else loop_gain,
+        "self_correction_rate": None,
+        "overthinking_rate": None,
+    }
+
+    if len(result.case_correct) != len(baseline.case_correct):
+        return metrics
+    total = max(1, len(result.case_correct))
+    self_corrections = sum(
+        1 for shallow, deep in zip(baseline.case_correct, result.case_correct)
+        if not shallow and deep
+    )
+    overthinking = sum(
+        1 for shallow, deep in zip(baseline.case_correct, result.case_correct)
+        if shallow and not deep
+    )
+    metrics["self_correction_rate"] = self_corrections / total
+    metrics["overthinking_rate"] = overthinking / total
+    return metrics
+
+
+def _csv_value(value: float | int | str | None) -> float | int | str:
+    return "" if value is None else value
+
+
 def run(args: argparse.Namespace) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, cfg = load_model(args.ckpt, device)
@@ -107,8 +147,10 @@ def run(args: argparse.Namespace) -> None:
     run_dir = Path(args.run_dir) if args.run_dir else Path(args.ckpt).parent
     telemetry = make_writer(run_dir)
     try:
-        L_range = range(cfg.model.L_min, cfg.model.L_max + 1)
+        first_L = cfg.model.L_min
+        L_range = range(first_L, cfg.model.L_max + 1)
         rows: list[dict[str, float | int | str]] = []
+        benchmark_history: dict[str, dict[int, BenchmarkResult]] = {}
         for L in L_range:
             approx_flops = L * cfg.model.n_unique_layers
             if dl is not None:
@@ -159,8 +201,20 @@ def run(args: argparse.Namespace) -> None:
                     num_samples=args.bench_num_samples,
                     verifier_retries=args.bench_verifier_retries,
                 )
+                history = benchmark_history.setdefault(result.benchmark, {})
+                baseline = result if L == first_L else history.get(first_L, result)
+                previous = history.get(L - 1)
+                loop_metrics = _loop_refinement_metrics(
+                    result,
+                    baseline=baseline,
+                    previous=previous,
+                )
+                history[L] = result
                 print(
                     f"L={L}  benchmark={result.benchmark}  score={result.accuracy:.4f}  "
+                    f"gain={loop_metrics['loop_gain']:+.4f}  "
+                    f"self-correct={_csv_value(loop_metrics['self_correction_rate'])}  "
+                    f"overthink={_csv_value(loop_metrics['overthinking_rate'])}  "
                     f"latency={result.latency_ms_per_case:.1f}ms/case  "
                     f"attempts/case={result.attempts_per_case:.2f}  "
                     f"tok/s={result.tokens_per_sec:.0f}"
@@ -176,6 +230,10 @@ def run(args: argparse.Namespace) -> None:
                     latency_ms=result.latency_ms_per_case,
                     tokens_per_sec=result.tokens_per_sec,
                     attempts_per_case=result.attempts_per_case,
+                    loop_gain=loop_metrics["loop_gain"],
+                    marginal_gain=loop_metrics["marginal_gain"],
+                    self_correction_rate=loop_metrics["self_correction_rate"],
+                    overthinking_rate=loop_metrics["overthinking_rate"],
                     ckpt=str(args.ckpt),
                 )
                 rows.append({
@@ -191,6 +249,10 @@ def run(args: argparse.Namespace) -> None:
                     "rel_flops": approx_flops,
                     "count": result.total,
                     "attempts_per_case": result.attempts_per_case,
+                    "loop_gain": _csv_value(loop_metrics["loop_gain"]),
+                    "marginal_gain": _csv_value(loop_metrics["marginal_gain"]),
+                    "self_correction_rate": _csv_value(loop_metrics["self_correction_rate"]),
+                    "overthinking_rate": _csv_value(loop_metrics["overthinking_rate"]),
                 })
 
         out_csv = Path(args.out_csv) if args.out_csv else None
@@ -212,6 +274,10 @@ def run(args: argparse.Namespace) -> None:
                         "rel_flops",
                         "count",
                         "attempts_per_case",
+                        "loop_gain",
+                        "marginal_gain",
+                        "self_correction_rate",
+                        "overthinking_rate",
                     ],
                 )
                 writer.writeheader()
