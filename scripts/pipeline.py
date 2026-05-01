@@ -50,7 +50,8 @@ HUIHUI_DETECTION_PREP_ROOT = Path("H:/elt_data/posttrain/detection/huihui_qwen36
 QWEN35_BOOTSTRAP_CKPT = Path("H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt")
 HF_DATASET_MIX_CONFIG = "configs/hf_dataset_mix_v1.yaml"
 HF_DATASET_MIX_ROOT = Path("H:/elt_data/hf_dataset_mix_v1")
-SYNTHETIC_V1_SEED_ROOT = Path("H:/elt_data/synthetic_v1_seed_large")
+SYNTHETIC_V1_SEED_ROOT = Path("H:/elt_data/synthetic_v1_seed_gb")
+SYNTHETIC_V1_TARGET_BYTES = 1024 * 1024 * 1024
 HAUHAUCS_V1_QUEUE_CONFIG = "configs/gguf_distill_qwen35_hauhaucs_multilane_v1_queue.yaml"
 # Use the 8.3 short path because Python's Windows subprocess quoting can pass
 # quoted .bat paths through to cmd.exe as literal escaped quotes.
@@ -705,12 +706,18 @@ def stage_build_synthetic_v1_seed(ctx: PipelineContext) -> None:
         try:
             payload = json.loads(summary.read_text(encoding="utf-8"))
             lane_summaries = payload.get("lanes", {})
-            if all(
-                int(lane_summaries.get(lane, {}).get("total_records", 0) or 0) >= 512
-                and float(lane_summaries.get(lane, {}).get("verifier_pass_rate", 0.0) or 0.0) >= 1.0
+            total_bytes = int(payload.get("total_bytes", 0) or 0)
+            lane_quality_ok = all(
+                int(lane_summaries.get(lane, {}).get("total_records", 0) or 0) > 0
+                and float(
+                    lane_summaries.get(lane, {}).get("sample_verifier_pass_rate",
+                                                     lane_summaries.get(lane, {}).get("verifier_pass_rate", 0.0))
+                    or 0.0
+                ) >= 1.0
                 and float(lane_summaries.get(lane, {}).get("unique_text_ratio", 0.0) or 0.0) >= 1.0
                 for lane in ("code", "math", "stem_reasoning", "tool_use")
-            ):
+            )
+            if total_bytes >= SYNTHETIC_V1_TARGET_BYTES and lane_quality_ok:
                 print(f"  skip existing synthetic v1 seed summary: {summary}")
                 return
         except Exception:
@@ -718,7 +725,7 @@ def stage_build_synthetic_v1_seed(ctx: PipelineContext) -> None:
     cmd = [
         "uv", "run", "--no-sync", "python", "-m", "elt_lm.synthetic_v1_seed",
         "--output-root", str(SYNTHETIC_V1_SEED_ROOT),
-        "--target-gb", "1",
+        "--target-bytes", str(SYNTHETIC_V1_TARGET_BYTES),
         "--validation-sample-per-lane", "512",
         "--val-ratio", "0.125",
     ]

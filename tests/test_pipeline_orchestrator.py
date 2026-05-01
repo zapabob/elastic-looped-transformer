@@ -106,6 +106,72 @@ def test_synthetic_v1_pretrain_posttrain_profile_skips_teacher_distill() -> None
     ]
 
 
+def test_synthetic_v1_seed_stage_requires_gb_target_before_skip(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    output_root = tmp_path / "synthetic_v1_seed_gb"
+    output_root.mkdir()
+    summary = {
+        "total_bytes": 10 * 1024 * 1024,
+        "lanes": {
+            lane: {
+                "total_records": 512,
+                "sample_verifier_pass_rate": 1.0,
+                "unique_text_ratio": 1.0,
+            }
+            for lane in ("code", "math", "stem_reasoning", "tool_use")
+        },
+    }
+    (output_root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    captured: list[list[str]] = []
+
+    def fake_run_subprocess(cmd: list[str], *, dry_run: bool = False) -> int:
+        captured.append(cmd)
+        return 0
+
+    monkeypatch.setattr(mod, "SYNTHETIC_V1_SEED_ROOT", output_root)
+    monkeypatch.setattr(mod, "SYNTHETIC_V1_TARGET_BYTES", 1024 * 1024 * 1024)
+    monkeypatch.setattr(mod, "run_subprocess", fake_run_subprocess)
+
+    mod.stage_build_synthetic_v1_seed(mod.PipelineContext(dry_run=True))
+
+    assert len(captured) == 1
+    assert "--target-bytes" in captured[0]
+    assert str(1024 * 1024 * 1024) in captured[0]
+
+
+def test_synthetic_v1_seed_stage_skips_only_when_target_bytes_and_quality_pass(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    output_root = tmp_path / "synthetic_v1_seed_gb"
+    output_root.mkdir()
+    summary = {
+        "total_bytes": 1024 * 1024 * 1024,
+        "lanes": {
+            lane: {
+                "total_records": 1000,
+                "sample_verifier_pass_rate": 1.0,
+                "unique_text_ratio": 1.0,
+            }
+            for lane in ("code", "math", "stem_reasoning", "tool_use")
+        },
+    }
+    (output_root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    captured: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "SYNTHETIC_V1_SEED_ROOT", output_root)
+    monkeypatch.setattr(mod, "SYNTHETIC_V1_TARGET_BYTES", 1024 * 1024 * 1024)
+    monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
+
+    mod.stage_build_synthetic_v1_seed(mod.PipelineContext(dry_run=True))
+
+    assert captured == []
+
+
 def test_v1_queue_config_points_only_to_v1_lane_configs() -> None:
     root = Path(__file__).resolve().parents[1]
     payload = yaml.safe_load(

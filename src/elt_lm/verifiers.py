@@ -65,7 +65,11 @@ def format_score(response: str) -> tuple[float, str]:
 
 
 def _unwrap_code_or_json_block(response: str) -> str:
-    m = re.search(r"```(?:python|py|json)?\s*\n?(.*?)```", response, re.DOTALL | re.IGNORECASE)
+    m = re.search(
+        r"```(?:python|py|json|rust|rs|go|typescript|ts|csharp|c#|cs)?\s*\n?(.*?)```",
+        response,
+        re.DOTALL | re.IGNORECASE,
+    )
     if m:
         return m.group(1).strip()
     return response.strip()
@@ -82,6 +86,9 @@ def canonical_task_answer(task: str, response: str) -> tuple[float, str]:
         fmt, answer = format_score(response)
         candidate = answer if fmt > 0 else response
         unwrapped = _unwrap_code_or_json_block(candidate)
+        return (1.0 if unwrapped else 0.0, unwrapped)
+    if task == "code_static_spec":
+        unwrapped = _unwrap_code_or_json_block(response)
         return (1.0 if unwrapped else 0.0, unwrapped)
     if task == "json_match":
         fmt, answer = format_score(response)
@@ -169,6 +176,16 @@ def python_exec_correctness(answer_text: str, reference: str, timeout_s: float =
     return 1.0 if (not result.timed_out and result.returncode == 0) else 0.0
 
 
+def code_static_spec_correctness(answer_text: str, reference: str) -> float:
+    code = _unwrap_code_or_json_block(answer_text)
+    ref = reference.strip().lower()
+    if len(code.strip()) < 40 or len(ref) < 30:
+        return 0.0
+    has_expected = any(token in ref for token in ("assert", "expect", "equals", "should", "test", "cargo test", "go test", "npm test", "dotnet test"))
+    has_stub = bool(re.search(r"\b(todo|pass|return\s+none|panic!\s*\(\"todo|throw\s+new\s+notimplemented)", code, re.IGNORECASE))
+    return 1.0 if has_expected and not has_stub else 0.0
+
+
 def _module_tool_score(module: str, module_args: list[str], code: str,
                        timeout_s: float = 5.0) -> float | None:
     if not _extract_code_block(code):
@@ -224,6 +241,7 @@ TASK_VERIFIERS: dict[str, Callable[[str, str], float]] = {
     "exact_math": exact_math_correctness,
     "mcq_reasoning": mcq_reasoning_correctness,
     "python_exec": python_exec_correctness,
+    "code_static_spec": code_static_spec_correctness,
     "json_match": json_match_correctness,
 }
 

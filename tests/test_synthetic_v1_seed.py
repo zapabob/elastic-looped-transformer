@@ -17,10 +17,19 @@ def test_generate_lane_examples_are_distinct() -> None:
         assert len(set(prompts)) == 4
 
 
+def test_code_seed_covers_requested_languages() -> None:
+    examples = generate_lane_examples("code", 10)
+    languages = {example.example["language"] for example in examples}
+    target_kinds = {example.task.target_kind for example in examples}
+
+    assert languages == {"python", "rust2024", "go", "typescript", "csharp"}
+    assert target_kinds == {"python_exec", "code_static_spec"}
+
+
 def test_build_synthetic_seed_bundle_writes_verifier_backed_lanes(tmp_path: Path) -> None:
     summary = build_synthetic_seed_bundle(
         output_root=tmp_path,
-        records_per_lane=4,
+        records_per_lane=10,
         val_ratio=0.25,
         lanes=("code", "math", "stem_reasoning", "tool_use"),
     )
@@ -34,7 +43,7 @@ def test_build_synthetic_seed_bundle_writes_verifier_backed_lanes(tmp_path: Path
         assert train_path.exists()
         assert val_path.exists()
         assert eval_path.exists()
-        assert lane_summary["total_records"] == 4
+        assert lane_summary["total_records"] == 10
         assert lane_summary["unique_text_ratio"] == 1.0
         assert lane_summary["verifier_pass_rate"] == 1.0
         rows = [
@@ -43,6 +52,14 @@ def test_build_synthetic_seed_bundle_writes_verifier_backed_lanes(tmp_path: Path
         ]
         assert all(row["metadata"]["lane"] == lane for row in rows)
         assert all(row["reference"] for row in rows)
+        if lane == "code":
+            assert {row["metadata"]["language"] for row in rows} == {
+                "python",
+                "rust2024",
+                "go",
+                "typescript",
+                "csharp",
+            }
 
 
 def test_synthetic_stem_seed_balances_answers(tmp_path: Path) -> None:

@@ -169,17 +169,252 @@ def _code_examples(count: int) -> Iterable[SyntheticExample]:
             "    raise AssertionError('expected ValueError')",
         )
 
-    builders = (clamp, normalize, parse_kv, rolling, chunk_list, safe_ratio)
+    def merge_intervals(i: int) -> tuple[str, str, str, str]:
+        base = i % 6
+        intervals = [(base, base + 2), (base + 1, base + 4), (base + 6, base + 7)]
+        expected = [(base, base + 4), (base + 6, base + 7)]
+        return (
+            "merge_intervals",
+            f"Implement merge_intervals(intervals) for closed integer intervals. Seed case: {i}.",
+            "def merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:\n"
+            "    ordered = sorted(intervals)\n"
+            "    merged: list[tuple[int, int]] = []\n"
+            "    for start, end in ordered:\n"
+            "        if start > end:\n"
+            "            raise ValueError('invalid interval')\n"
+            "        if not merged or start > merged[-1][1]:\n"
+            "            merged.append((start, end))\n"
+            "        else:\n"
+            "            merged[-1] = (merged[-1][0], max(merged[-1][1], end))\n"
+            "    return merged",
+            f"assert merge_intervals({intervals!r}) == {expected!r}\n"
+            "assert merge_intervals([]) == []\n"
+            "try:\n"
+            "    merge_intervals([(3, 2)])\n"
+            "except ValueError as exc:\n"
+            "    assert str(exc) == 'invalid interval'\n"
+            "else:\n"
+            "    raise AssertionError('expected ValueError')",
+        )
+
+    def topo_sort(i: int) -> tuple[str, str, str, str]:
+        a = f"extract_{i % 5}"
+        b = f"transform_{i % 7}"
+        c = f"load_{i % 11}"
+        return (
+            "topological_sort",
+            f"Implement topo_sort(edges) returning a deterministic dependency order. Seed case: {i}.",
+            "from collections import defaultdict\n\n"
+            "def topo_sort(edges: list[tuple[str, str]]) -> list[str]:\n"
+            "    graph: dict[str, list[str]] = defaultdict(list)\n"
+            "    indegree: dict[str, int] = {}\n"
+            "    for before, after in edges:\n"
+            "        graph[before].append(after)\n"
+            "        indegree.setdefault(before, 0)\n"
+            "        indegree[after] = indegree.get(after, 0) + 1\n"
+            "    ready = sorted(node for node, degree in indegree.items() if degree == 0)\n"
+            "    order: list[str] = []\n"
+            "    while ready:\n"
+            "        node = ready.pop(0)\n"
+            "        order.append(node)\n"
+            "        for child in sorted(graph[node]):\n"
+            "            indegree[child] -= 1\n"
+            "            if indegree[child] == 0:\n"
+            "                ready.append(child)\n"
+            "                ready.sort()\n"
+            "    if len(order) != len(indegree):\n"
+            "        raise ValueError('cycle detected')\n"
+            "    return order",
+            f"assert topo_sort([('{a}', '{b}'), ('{b}', '{c}')]) == ['{a}', '{b}', '{c}']\n"
+            "try:\n"
+            "    topo_sort([('a', 'b'), ('b', 'a')])\n"
+            "except ValueError as exc:\n"
+            "    assert str(exc) == 'cycle detected'\n"
+            "else:\n"
+            "    raise AssertionError('expected cycle')",
+        )
+
+    def binary_search_left(i: int) -> tuple[str, str, str, str]:
+        values = sorted({i % 3, i % 3 + 2, i % 3 + 5, i % 3 + 9})
+        target = values[2]
+        return (
+            "binary_search_left",
+            f"Implement lower_bound(values, target) without using bisect. Seed case: {i}.",
+            "def lower_bound(values: list[int], target: int) -> int:\n"
+            "    lo = 0\n"
+            "    hi = len(values)\n"
+            "    while lo < hi:\n"
+            "        mid = (lo + hi) // 2\n"
+            "        if values[mid] < target:\n"
+            "            lo = mid + 1\n"
+            "        else:\n"
+            "            hi = mid\n"
+            "    return lo",
+            f"assert lower_bound({values!r}, {target}) == 2\n"
+            f"assert lower_bound({values!r}, {values[0] - 1}) == 0\n"
+            f"assert lower_bound({values!r}, {values[-1] + 1}) == {len(values)}",
+        )
+
+    def validate_tool_call(i: int) -> tuple[str, str, str, str]:
+        required = f"query_{i % 9}"
+        return (
+            "validate_tool_call",
+            f"Implement validate_tool_call(call, required_key) for MCP-style JSON tool calls. Seed case: {i}.",
+            "def validate_tool_call(call: dict[str, object], required_key: str) -> bool:\n"
+            "    tool_name = call.get('tool_name')\n"
+            "    arguments = call.get('arguments')\n"
+            "    if not isinstance(tool_name, str) or not tool_name:\n"
+            "        return False\n"
+            "    if not isinstance(arguments, dict) or not arguments:\n"
+            "        return False\n"
+            "    return required_key in arguments",
+            f"assert validate_tool_call({{'tool_name': 'mcp.search', 'arguments': {{'{required}': 'abc'}}}}, '{required}') is True\n"
+            f"assert validate_tool_call({{'tool_name': 'mcp.search', 'arguments': {{}}}}, '{required}') is False\n"
+            f"assert validate_tool_call({{'tool_name': '', 'arguments': {{'{required}': 'abc'}}}}, '{required}') is False",
+        )
+
+    builders = (
+        clamp,
+        normalize,
+        parse_kv,
+        rolling,
+        chunk_list,
+        safe_ratio,
+        merge_intervals,
+        topo_sort,
+        binary_search_left,
+        validate_tool_call,
+    )
+
+    def rust_example(i: int) -> tuple[str, str, str, str, str]:
+        low = i % 8
+        high = low + 10
+        value = high + 3
+        return (
+            "rust2024",
+            "rust2024_saturating_clamp",
+            f"Implement a Rust 2024 function clamp_i32(value, low, high) -> Result<i32, String>. Seed case: {i}.",
+            "pub fn clamp_i32(value: i32, low: i32, high: i32) -> Result<i32, String> {\n"
+            "    if low > high {\n"
+            "        return Err(\"low must be <= high\".to_string());\n"
+            "    }\n"
+            "    Ok(value.max(low).min(high))\n"
+            "}",
+            "# Rust 2024 harness\n"
+            "Run with `cargo test --edition 2024`.\n"
+            f"assert_eq!(clamp_i32({value}, {low}, {high}).unwrap(), {high});\n"
+            f"assert_eq!(clamp_i32({low - 1}, {low}, {high}).unwrap(), {low});\n"
+            "assert!(clamp_i32(1, 5, 3).is_err());",
+        )
+
+    def go_example(i: int) -> tuple[str, str, str, str, str]:
+        key = f"region_{i % 11}"
+        value = f"zone_{(i * 7) % 13}"
+        return (
+            "go",
+            "go_parse_label",
+            f"Implement Go function ParseLabel(line string) (string, string, error). Seed case: {i}.",
+            "package labels\n\n"
+            "import (\n"
+            "    \"errors\"\n"
+            "    \"strings\"\n"
+            ")\n\n"
+            "func ParseLabel(line string) (string, string, error) {\n"
+            "    parts := strings.SplitN(line, \"=\", 2)\n"
+            "    if len(parts) != 2 {\n"
+            "        return \"\", \"\", errors.New(\"missing separator\")\n"
+            "    }\n"
+            "    key := strings.TrimSpace(parts[0])\n"
+            "    val := strings.TrimSpace(parts[1])\n"
+            "    if key == \"\" {\n"
+            "        return \"\", \"\", errors.New(\"empty key\")\n"
+            "    }\n"
+            "    return key, val, nil\n"
+            "}",
+            "# Go harness\n"
+            "Run with `go test ./...`.\n"
+            f"k, v, err := ParseLabel(\" {key} = {value} \"); if err != nil || k != \"{key}\" || v != \"{value}\" {{ t.Fatalf(\"unexpected parse\") }}\n"
+            "_, _, err = ParseLabel(\"bad\"); if err == nil { t.Fatalf(\"expected error\") }",
+        )
+
+    def ts_example(i: int) -> tuple[str, str, str, str, str]:
+        limit = 3 + (i % 5)
+        return (
+            "typescript",
+            "typescript_take_unique",
+            f"Implement TypeScript function takeUnique(values: readonly string[], limit: number): string[]. Seed case: {i}.",
+            "export function takeUnique(values: readonly string[], limit: number): string[] {\n"
+            "  if (!Number.isInteger(limit) || limit < 0) {\n"
+            "    throw new Error(\"limit must be a non-negative integer\");\n"
+            "  }\n"
+            "  const seen = new Set<string>();\n"
+            "  const out: string[] = [];\n"
+            "  for (const raw of values) {\n"
+            "    const value = raw.trim().toLowerCase();\n"
+            "    if (value && !seen.has(value)) {\n"
+            "      seen.add(value);\n"
+            "      out.push(value);\n"
+            "      if (out.length === limit) break;\n"
+            "    }\n"
+            "  }\n"
+            "  return out;\n"
+            "}",
+            "# TypeScript harness\n"
+            "Run with `npm test` or `tsc --noEmit --strict` plus a test runner.\n"
+            f"expect(takeUnique([\" A \", \"a\", \"B\", \"C\"], {limit})).toEqual([\"a\", \"b\", \"c\"].slice(0, {limit}));\n"
+            "expect(() => takeUnique([\"a\"], -1)).toThrow(\"limit must be a non-negative integer\");",
+        )
+
+    def csharp_example(i: int) -> tuple[str, str, str, str, str]:
+        step = 2 + (i % 4)
+        expected = sum([1, 2, 3, 4, 5, 6, 7, 8, 9][idx] for idx in range(0, 9, step))
+        return (
+            "csharp",
+            "csharp_stride_sum",
+            f"Implement C# static method SumEveryNth(IReadOnlyList<int> values, int step). Seed case: {i}.",
+            "using System;\n"
+            "using System.Collections.Generic;\n\n"
+            "public static class SeriesTools\n"
+            "{\n"
+            "    public static int SumEveryNth(IReadOnlyList<int> values, int step)\n"
+            "    {\n"
+            "        if (step <= 0)\n"
+            "        {\n"
+            "            throw new ArgumentOutOfRangeException(nameof(step), \"step must be positive\");\n"
+            "        }\n"
+            "        var total = 0;\n"
+            "        for (var index = 0; index < values.Count; index += step)\n"
+            "        {\n"
+            "            total += values[index];\n"
+            "        }\n"
+            "        return total;\n"
+            "    }\n"
+            "}",
+            "# C# harness\n"
+            "Run with `dotnet test`.\n"
+            f"Assert.Equal({expected}, SeriesTools.SumEveryNth(new[] {{1, 2, 3, 4, 5, 6, 7, 8, 9}}, {step}));\n"
+            "Assert.Throws<ArgumentOutOfRangeException>(() => SeriesTools.SumEveryNth(new[] {1}, 0));",
+        )
+
+    static_builders = (rust_example, go_example, ts_example, csharp_example)
     for i in range(count):
-        name, request, code, verifier = builders[i % len(builders)](i)
-        task = _task("code", name, request, "python_exec", i)
+        language_slot = i % 5
+        if language_slot == 0:
+            name, request, code, verifier = builders[(i // 5) % len(builders)](i)
+            language = "python"
+            target_kind = "python_exec"
+        else:
+            language, name, request, code, verifier = static_builders[language_slot - 1](i)
+            target_kind = "code_static_spec"
+        task = _task("code", name, request, target_kind, i)
         yield SyntheticExample(
             task=task,
             example={
                 "user_request": request,
                 "assistant_code": code,
                 "verifier_snippet": verifier,
-                "rationale": "compact verifier-backed code seed",
+                "language": language,
+                "rationale": f"compact verifier-backed {language} code seed",
             },
         )
 
@@ -247,7 +482,72 @@ def _math_examples(count: int) -> Iterable[SyntheticExample]:
             str(answer),
         )
 
-    builders = (linear, rectangle, probability, arithmetic_sum, weighted_average)
+    def modular_remainder(i: int) -> tuple[str, str, str, str]:
+        a = 7 + (i % 13)
+        b = 3 + ((i * 5) % 17)
+        modulus = 5 + (i % 9)
+        answer = (a * b + b) % modulus
+        return (
+            "modular_arithmetic",
+            f"Compute the remainder of ({a}*{b}+{b}) modulo {modulus}. Synthetic seed id {i}.",
+            f"First compute {a}*{b}+{b} = {a * b + b}. Dividing by {modulus} leaves remainder {answer}.",
+            str(answer),
+        )
+
+    def bayes_binary(i: int) -> tuple[str, str, str, str]:
+        prevalence_num = 1 + (i % 4)
+        sensitivity_num = 7 + (i % 3)
+        false_positive_num = 1 + (i % 2)
+        prevalence = prevalence_num / 10
+        sensitivity = sensitivity_num / 10
+        false_positive = false_positive_num / 10
+        numerator = prevalence_num * sensitivity_num
+        denominator = numerator + (10 - prevalence_num) * false_positive_num
+        return (
+            "bayes_binary",
+            "A test has prevalence "
+            f"{prevalence:.1f}, sensitivity {sensitivity:.1f}, and false positive rate {false_positive:.1f}. "
+            f"Compute P(disease | positive) exactly as a fraction. Synthetic seed id {i}.",
+            "Bayes rule gives sensitivity*prevalence divided by "
+            "sensitivity*prevalence + false_positive_rate*(1-prevalence). "
+            f"Using tenths, the numerator is {numerator} and the denominator is {denominator}.",
+            f"{numerator}/{denominator}",
+        )
+
+    def integer_quadratic_root(i: int) -> tuple[str, str, str, str]:
+        r1 = 2 + (i % 8)
+        r2 = r1 + 3 + (i % 5)
+        s = r1 + r2
+        p = r1 * r2
+        return (
+            "quadratic_roots",
+            f"The equation x^2 - {s}x + {p} = 0 has two positive integer roots. Report the smaller root. Synthetic seed id {i}.",
+            f"The factorization is (x - {r1})(x - {r2}) = 0, so the roots are {r1} and {r2}. The smaller root is {r1}.",
+            str(r1),
+        )
+
+    def vector_dot(i: int) -> tuple[str, str, str, str]:
+        a = [1 + (i % 4), 2 + (i % 5), 3 + (i % 6)]
+        b = [2 + (i % 3), 1 + ((i * 2) % 4), 4 + ((i * 3) % 5)]
+        answer = sum(x * y for x, y in zip(a, b))
+        return (
+            "vector_dot_product",
+            f"Compute the dot product of vectors {a} and {b}. Synthetic seed id {i}.",
+            f"Multiply componentwise and add: {a[0]}*{b[0]} + {a[1]}*{b[1]} + {a[2]}*{b[2]} = {answer}.",
+            str(answer),
+        )
+
+    builders = (
+        linear,
+        rectangle,
+        probability,
+        arithmetic_sum,
+        weighted_average,
+        modular_remainder,
+        bayes_binary,
+        integer_quadratic_root,
+        vector_dot,
+    )
     for i in range(count):
         name, question, reasoning, answer = builders[i % len(builders)](i)
         task = _task("math", name, question, "exact_math", i)
@@ -341,6 +641,61 @@ def _stem_examples(count: int) -> Iterable[SyntheticExample]:
             ],
             "Absolute risk reduction is baseline risk times relative reduction: 0.20 * 0.25 = 0.05.",
         ),
+        (
+            "materials_stress",
+            "A metal rod is loaded within its elastic region. Which quantity is the slope of the stress-strain curve?",
+            "Young's modulus because it relates stress to strain in the linear elastic region",
+            [
+                "Density because mass per volume sets the slope of all mechanical curves",
+                "Thermal conductivity because heat transfer controls elastic slope",
+                "Specific heat because stored heat determines strain",
+            ],
+            "In the elastic linear regime, stress equals Young's modulus times strain.",
+        ),
+        (
+            "epidemiology_confounding",
+            "A study finds coffee drinkers have higher disease risk, but coffee drinkers also smoke more often. What is smoking in this setup?",
+            "A potential confounder because it is associated with exposure and outcome",
+            [
+                "A mediator that must always lie after coffee in the causal chain",
+                "A randomized treatment because it balances groups automatically",
+                "A negative control outcome because it cannot affect disease",
+            ],
+            "A confounder is related to both the exposure and the outcome and can bias the association.",
+        ),
+        (
+            "astronomy_inverse_square",
+            "A star-like point source is observed from twice the distance. How does measured flux change in empty space?",
+            "It becomes one quarter because flux follows an inverse-square law",
+            [
+                "It doubles because the line of sight is longer",
+                "It is unchanged because luminosity is constant",
+                "It becomes half because distance changed by a factor of two",
+            ],
+            "For a fixed luminosity point source, flux scales as 1/r^2.",
+        ),
+        (
+            "linear_algebra_rank",
+            "Two rows of a 2 by 2 matrix are exact multiples of each other. What can be concluded about its determinant?",
+            "The determinant is zero because the rows are linearly dependent",
+            [
+                "The determinant must be one because the rows are proportional",
+                "The determinant is negative because one row repeats information",
+                "No conclusion is possible because determinants ignore rows",
+            ],
+            "A square matrix with linearly dependent rows has zero determinant.",
+        ),
+        (
+            "clinical_trial_power",
+            "All else equal, which design change usually increases statistical power in a randomized trial?",
+            "Increasing sample size because it reduces standard error",
+            [
+                "Using a smaller true effect while keeping noise fixed",
+                "Increasing measurement noise without changing sample size",
+                "Removing randomization and comparing arbitrary groups",
+            ],
+            "Larger sample size usually lowers uncertainty and increases the chance of detecting a true effect.",
+        ),
     ]
     for i in range(count):
         name, question, correct_choice, distractors, rationale = specs[i % len(specs)]
@@ -407,6 +762,36 @@ def _tool_examples(count: int) -> Iterable[SyntheticExample]:
             "Read latest pipeline progress metrics from H drive.",
             "mcp.metrics.read",
             {"path": "H:/elt_data/pipeline_state/progress_report.json", "read_only": True},
+        ),
+        (
+            "mcp_agent_harness",
+            "Construct a read-only MCP harness invocation for a local code agent.",
+            "mcp.agent.invoke",
+            {"agent": "code-reviewer", "cwd": "C:/Users/downl/Desktop/新しいフォルダー (7)", "mode": "read_only"},
+        ),
+        (
+            "mcp_schema_validate",
+            "Validate a tool-call JSON schema before executing an agent plan.",
+            "mcp.schema.validate",
+            {"schema_name": "tool_call_v1", "strict": True, "dry_run": True},
+        ),
+        (
+            "agent_static_analysis",
+            "Run static analysis in no-write mode for a Python training utility.",
+            "agent.static_analysis.run",
+            {"targets": ["src/elt_lm/synthetic_v1_seed.py"], "write": False, "timeout_sec": 180},
+        ),
+        (
+            "mcp_checkpoint_status",
+            "Read rolling checkpoint freshness and keep count for the active run.",
+            "mcp.training.checkpoints",
+            {"run_dir": "H:/elt_data/runs/base_1B_clean_replay_phase2", "keep": 3, "read_only": True},
+        ),
+        (
+            "agent_tool_router",
+            "Route a user request to a safe read-only tool without executing mutations.",
+            "agent.tool.route",
+            {"request_type": "dataset_audit", "allowed_modes": ["read_only", "dry_run"], "dry_run": True},
         ),
     ]
     for i in range(count):

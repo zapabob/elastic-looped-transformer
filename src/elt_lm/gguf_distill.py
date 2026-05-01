@@ -22,6 +22,7 @@ from elt_lm.posttrain_data import render_chat_text
 from elt_lm.telemetry import make_writer
 from elt_lm.verifiers import (
     TASK_VERIFIERS,
+    code_static_spec_correctness,
     exact_math_correctness,
     json_match_correctness,
     mcq_reasoning_correctness,
@@ -647,13 +648,26 @@ def _build_detection_record(task: DistillTask, example: dict[str, Any], teacher_
 def _build_code_record(task: DistillTask, example: dict[str, Any], teacher_name: str, split: str) -> dict[str, Any]:
     prompt = build_code_prompt(str(example["user_request"]))
     code = str(example["assistant_code"]).rstrip()
-    response = f"```python\n{code}\n```"
+    language = str(example.get("language", "python")).strip().lower() or "python"
+    fence = {
+        "python": "python",
+        "rust2024": "rust",
+        "rust": "rust",
+        "go": "go",
+        "typescript": "typescript",
+        "ts": "typescript",
+        "csharp": "csharp",
+        "c#": "csharp",
+        "cs": "csharp",
+    }.get(language, language)
+    response = f"```{fence}\n{code}\n```"
     reference = str(example["verifier_snippet"]).strip()
+    target_kind = task.target_kind or ("python_exec" if language == "python" else "code_static_spec")
     return {
         "bucket": "gguf_code_distill",
         "mode": "sft",
         "source": teacher_name,
-        "task": "python_exec",
+        "task": target_kind,
         "prompt": prompt,
         "response": response,
         "reference": reference,
@@ -666,6 +680,7 @@ def _build_code_record(task: DistillTask, example: dict[str, Any], teacher_name:
             "teacher": teacher_name,
             "tags": list(task.tags),
             "variant": task.variant,
+            "language": language,
         },
     }
 
@@ -989,11 +1004,20 @@ def validate_distill_record_quality(
     if task.lane == "code":
         code = str(example.get("assistant_code", "")).strip()
         verifier = str(example.get("verifier_snippet", example.get("reference", ""))).strip()
+        language = str(example.get("language", "python")).strip().lower() or "python"
         compact_code = re.sub(r"\s+", "", code).lower()
-        candidate_api_names = _top_level_api_names(code)
         assert_count = len(re.findall(r"\bassert\b", verifier))
         if "returnnone" in compact_code or re.search(r"\bpass\b|todo", code, re.IGNORECASE):
             raise DistillQualityError("fallback_code_stub")
+        if language != "python":
+            if str(record.get("task", "")) != "code_static_spec":
+                raise DistillQualityError("non_python_code_must_use_static_spec")
+            if not any(token in verifier.lower() for token in ("assert", "expect", "equals", "should", "test", "cargo test", "go test", "npm test", "dotnet test")):
+                raise DistillQualityError("missing_static_code_harness")
+            if code_static_spec_correctness(str(record["response"]), str(record["reference"])) < 1.0:
+                raise DistillQualityError("verifier_failed_code_static_spec")
+            return
+        candidate_api_names = _top_level_api_names(code)
         if not _python_code_has_public_typed_callable(code):
             raise DistillQualityError("missing_typed_public_callable")
         if assert_count == 0:
