@@ -39,6 +39,21 @@ The 10 MiB target smoke produced `10,489,461` bytes and `6,936` records.
 All lanes had `schema_valid_rate=1.0`, `unique_text_ratio=1.0`, and sampled
 `verifier_pass_rate=1.0`. STEM answer labels were balanced across A/B/C/D.
 
+# GB Corpus Result
+
+The GB target run wrote `H:/elt_data/synthetic_v1_seed_gb` with
+`1,073,745,004` bytes and `693,822` accepted records.
+
+- code: `131,422` records, `268,436,591` bytes, `python_exec=26,285`,
+  `code_static_spec=105,137`
+- math: `231,995` records, `268,435,551` bytes, sampled verifier pass `1.0`
+- stem_reasoning: `148,096` records, `268,436,221` bytes, A/B/C/D each `37,024`
+- tool_use: `182,309` records, `268,436,641` bytes, sampled verifier pass `1.0`
+
+All lanes reported `schema_valid_rate=1.0`, `unique_text_ratio=1.0`,
+`exact_duplicate_count=0`, and sampled verifier pass `1.0`. Math rejected
+`17` generated zero-answer cases via the existing `fallback_zero_answer` gate.
+
 # Next Session Notes
 
 - If `H:/elt_data/pipeline_state/01_build_synthetic_v1_seed.done` exists from
