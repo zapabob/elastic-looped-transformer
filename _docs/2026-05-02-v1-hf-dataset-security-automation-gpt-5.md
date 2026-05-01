@@ -101,6 +101,10 @@ before it can proceed.
   the prompt still encouraged large dataclass/API examples. The code prompt and
   code-v1 task variants were narrowed to compact typed utilities, direct
   top-level asserts, no candidate redefinition, and concise verifier snippets.
+- Added a CPU-only synthetic v1 seed builder that emits deduplicated
+  `distill_train.jsonl` / `distill_val.jsonl` bundles for code, math, STEM, and
+  tool-use. These records are verifier-backed and intended as stable seed data
+  before or alongside teacher-generated v1 distillation.
 
 ## Next session notes
 
