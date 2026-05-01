@@ -33,6 +33,9 @@ sources, and make the resumable Windows cron pipeline run the v1 path with
   `H:/elt_data/posttrain_v1/...`, and `H:/elt_data/runs/*_v1`.
 - v1 prompt generation now rotates difficulty, reasoning style, schema style,
   edge cases, and safety boundaries per `variant_index`.
+- v1 teacher requests now include a strict JSON system message plus JSON-object
+  response formatting. This was added after the first code-v1 attempts produced
+  only fallback/refusal-shaped outputs under the quality gate.
 - HF dataset fetching is implemented as a reviewed/sampled acquisition stage.
   Sensitive corpora are retained for detection, contrastive, or boundary
   evaluation use, not as operational harm targets.
@@ -71,6 +74,8 @@ before it can proceed.
   `01_hauhaucs_v1_multilane_distill`.
 - Latest v1 distill status was `code_v1` teacher generation; quality rejections
   are counted in `error_count` and are expected to occur under the v1 gate.
+- The initial partial `code_v1` output with only rejected items was reset before
+  restart; the existing HF dataset sample stage marker was preserved.
 
 ## Next session notes
 

@@ -1722,6 +1722,14 @@ def request_teacher_example(
         "model": cfg.name,
         "messages": [
             {
+                "role": "system",
+                "content": (
+                    "You are a strict JSON dataset generator. Return exactly one JSON object "
+                    "with the requested keys. Do not use markdown fences, prose, apologies, "
+                    "refusals, TODOs, pass statements, or placeholder implementations."
+                ),
+            },
+            {
                 "role": "user",
                 "content": build_teacher_instruction(
                     task,
