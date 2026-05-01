@@ -1,0 +1,54 @@
+# Synthetic GB LoRA SFT for Qwen3.5-4B side branch tool-use/MCP/agent lane.
+
+model:
+  backbone_kind: hf_qwen35_looped
+  hf_model_path: huihui-ai/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated
+  source_model_id: huihui-ai/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated
+  language_only: true
+  freeze_vision: true
+  import_lm_head: true
+  parity_dtype: bf16
+  L_min: 1
+  L_max: 1
+  loop_bootstrap_L_max: 1
+  hf_trainable_mode: lora
+  hf_lora_rank: 16
+  hf_lora_alpha: 32.0
+  hf_lora_dropout: 0.02
+  hf_lora_top_layers: 0
+  hf_save_adapter_only: true
+  hf_adapter_base_ckpt: H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt
+  grad_checkpoint: false
+
+ilsd:
+  enabled: false
+
+data:
+  train_bin: H:/elt_data/posttrain_synthetic/tool_use/v1_gb/bin/train.bin
+  val_bin: H:/elt_data/posttrain_synthetic/tool_use/v1_gb/bin/val.bin
+  seq_len: 256
+  tokenizer_path: H:/Qwen3.5-9B-official-hf
+
+optim:
+  kind: adamw
+
+lr: 1.2e-4
+min_lr: 1.2e-5
+weight_decay: 0.0
+beta1: 0.9
+beta2: 0.95
+eps: 1.0e-8
+grad_clip: 1.0
+warmup_steps: 20
+total_steps: 240
+lr_schedule: cosine
+micro_batch_size: 1
+grad_accum_steps: 1
+dtype: bf16
+log_every: 1
+eval_every: 40
+save_every: 40
+run_dir: H:/elt_data/runs/qwen35_4b_side_lora_tool_sft_synthetic_gb
+rolling_ckpt_interval_sec: 300
+rolling_ckpt_keep: 3
+seed: 275

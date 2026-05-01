@@ -961,6 +961,66 @@ def _tool_examples(count: int) -> Iterable[SyntheticExample]:
             "agent.tool.route",
             {"request_type": "dataset_audit", "allowed_modes": ["read_only", "dry_run"], "dry_run": True},
         ),
+        (
+            "mcp_tool_discovery",
+            "Discover available MCP tools for a coding-agent task without invoking them.",
+            "mcp.tools.list",
+            {"server": "codex_apps", "capability": "code_quality", "read_only": True},
+        ),
+        (
+            "mcp_resource_read",
+            "Read a specific MCP resource that describes benchmark schema.",
+            "mcp.resources.read",
+            {"server": "elt-local", "uri": "resource://benchmarks/schema/v1", "read_only": True},
+        ),
+        (
+            "agent_plan_execute_dry_run",
+            "Run an implementation plan through an agent harness in dry-run mode.",
+            "agent.plan.execute",
+            {"plan_id": "synthetic-plan", "max_steps": 6, "dry_run": True, "write": False},
+        ),
+        (
+            "agent_memory_search",
+            "Search project memory for prior LoRA checkpoint decisions.",
+            "agent.memory.search",
+            {"query": "side lora adapter checkpoint synthetic gb", "limit": 5, "read_only": True},
+        ),
+        (
+            "agent_browser_inspect",
+            "Inspect a local dashboard route without clicking or mutating state.",
+            "agent.browser.inspect",
+            {"url": "http://localhost:7860/status", "selectors": ["#stage", "#loss"], "read_only": True},
+        ),
+        (
+            "agent_security_scan",
+            "Run a non-mutating security scan for generated tool-call examples.",
+            "agent.security.scan",
+            {"targets": ["H:/elt_data/synthetic_v1_tool_gb"], "severity": "high", "dry_run": True},
+        ),
+        (
+            "mcp_training_resume",
+            "Query whether a training run can resume from the latest rolling checkpoint.",
+            "mcp.training.resume_status",
+            {"run_dir": "H:/elt_data/runs/qwen35_4b_side_lora_tool_sft_synthetic_gb", "read_only": True},
+        ),
+        (
+            "agent_eval_rerank",
+            "Plan a verifier rerank pass for tool-use predictions without executing tools.",
+            "agent.eval.rerank",
+            {"lane": "tool_use", "verifiers": ["json_match"], "top_k": 4, "dry_run": True},
+        ),
+        (
+            "mcp_dataset_sample",
+            "Sample a dataset shard for manual review using read-only access.",
+            "mcp.dataset.sample",
+            {"path": "H:/elt_data/synthetic_v1_tool_gb/tool_use/distill_train.jsonl", "sample_size": 8, "read_only": True},
+        ),
+        (
+            "agent_ci_matrix",
+            "Construct a CI matrix for Rust, Go, TypeScript, Python, and C# code tasks.",
+            "agent.ci.matrix",
+            {"languages": ["rust2024", "go", "typescript", "python", "csharp"], "dry_run": True},
+        ),
     ]
     for i in range(count):
         name, request, tool_name, arguments = specs[i % len(specs)]

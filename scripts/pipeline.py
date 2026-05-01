@@ -52,8 +52,10 @@ HF_DATASET_MIX_CONFIG = "configs/hf_dataset_mix_v1.yaml"
 HF_DATASET_MIX_ROOT = Path("H:/elt_data/hf_dataset_mix_v1")
 SYNTHETIC_V1_SEED_ROOT = Path("H:/elt_data/synthetic_v1_seed_gb")
 SYNTHETIC_V1_TARGET_BYTES = 1024 * 1024 * 1024
+SYNTHETIC_V1_CODE_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_code_gb/code")
 SYNTHETIC_V1_MATH_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_math_gb/math")
 SYNTHETIC_V1_STEM_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_stem_gb/stem_reasoning")
+SYNTHETIC_V1_TOOL_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_tool_gb/tool_use")
 HAUHAUCS_V1_QUEUE_CONFIG = "configs/gguf_distill_qwen35_hauhaucs_multilane_v1_queue.yaml"
 # Use the 8.3 short path because Python's Windows subprocess quoting can pass
 # quoted .bat paths through to cmd.exe as literal escaped quotes.
@@ -1154,6 +1156,12 @@ def stage_side_lora_mixed_sft(ctx: PipelineContext) -> None:
 
 SYNTHETIC_GB_LORA_PREP: list[tuple[str, Path, Path, str]] = [
     (
+        "code",
+        SYNTHETIC_V1_CODE_GB_INPUT_ROOT,
+        Path("H:/elt_data/posttrain_synthetic/code/v1_gb"),
+        "configs/qwen35_4b_side_lora_code_sft_synthetic_gb.yaml",
+    ),
+    (
         "math",
         SYNTHETIC_V1_MATH_GB_INPUT_ROOT,
         Path("H:/elt_data/posttrain_synthetic/math/v1_gb"),
@@ -1165,11 +1173,19 @@ SYNTHETIC_GB_LORA_PREP: list[tuple[str, Path, Path, str]] = [
         Path("H:/elt_data/posttrain_synthetic/stem_reasoning/v1_gb"),
         "configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml",
     ),
+    (
+        "tool_use",
+        SYNTHETIC_V1_TOOL_GB_INPUT_ROOT,
+        Path("H:/elt_data/posttrain_synthetic/tool_use/v1_gb"),
+        "configs/qwen35_4b_side_lora_tool_sft_synthetic_gb.yaml",
+    ),
 ]
 
 SIDE_LORA_SYNTHETIC_GB_SFT_CONFIGS: list[str] = [
+    "configs/qwen35_4b_side_lora_code_sft_synthetic_gb.yaml",
     "configs/qwen35_4b_side_lora_math_sft_synthetic_gb.yaml",
     "configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml",
+    "configs/qwen35_4b_side_lora_tool_sft_synthetic_gb.yaml",
 ]
 
 
@@ -1200,8 +1216,10 @@ def stage_side_lora_synthetic_gb_sft(ctx: PipelineContext) -> None:
 
 def stage_export_synthetic_gb_side_lora_adapters(ctx: PipelineContext) -> None:
     exports = [
+        ("synthetic_code_gb", Path("H:/elt_data/runs/qwen35_4b_side_lora_code_sft_synthetic_gb/last.pt")),
         ("synthetic_math_gb", Path("H:/elt_data/runs/qwen35_4b_side_lora_math_sft_synthetic_gb/last.pt")),
         ("synthetic_stem_gb", Path("H:/elt_data/runs/qwen35_4b_side_lora_stem_sft_synthetic_gb/last.pt")),
+        ("synthetic_tool_gb", Path("H:/elt_data/runs/qwen35_4b_side_lora_tool_sft_synthetic_gb/last.pt")),
     ]
     for name, ckpt in exports:
         if not file_nonempty(ckpt):

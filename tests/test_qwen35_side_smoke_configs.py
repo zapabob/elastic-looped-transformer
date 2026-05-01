@@ -115,6 +115,10 @@ def test_qwen35_4b_side_lora_long_configs_are_adapter_only() -> None:
 
 def test_qwen35_4b_side_lora_synthetic_gb_configs_are_adapter_only() -> None:
     expected_bins = {
+        "qwen35_4b_side_lora_code_sft_synthetic_gb.yaml": (
+            "H:/elt_data/posttrain_synthetic/code/v1_gb/bin/train.bin",
+            "H:/elt_data/posttrain_synthetic/code/v1_gb/bin/val.bin",
+        ),
         "qwen35_4b_side_lora_math_sft_synthetic_gb.yaml": (
             "H:/elt_data/posttrain_synthetic/math/v1_gb/bin/train.bin",
             "H:/elt_data/posttrain_synthetic/math/v1_gb/bin/val.bin",
@@ -122,6 +126,10 @@ def test_qwen35_4b_side_lora_synthetic_gb_configs_are_adapter_only() -> None:
         "qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml": (
             "H:/elt_data/posttrain_synthetic/stem_reasoning/v1_gb/bin/train.bin",
             "H:/elt_data/posttrain_synthetic/stem_reasoning/v1_gb/bin/val.bin",
+        ),
+        "qwen35_4b_side_lora_tool_sft_synthetic_gb.yaml": (
+            "H:/elt_data/posttrain_synthetic/tool_use/v1_gb/bin/train.bin",
+            "H:/elt_data/posttrain_synthetic/tool_use/v1_gb/bin/val.bin",
         ),
     }
     for name, (train_bin, val_bin) in expected_bins.items():

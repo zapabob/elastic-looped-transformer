@@ -73,20 +73,46 @@ clearance, machine-learning calibration, thermodynamics, and diagnostic
 likelihood-ratio reasoning. STEM answer distribution remained balanced:
 `A=147,235`, `B=147,235`, `C=147,234`, `D=147,234`.
 
+# Code/Tool Dedicated GB Results
+
+Code and tool/MCP/agent harness data were then split into their own dedicated
+GB-scale artifacts so the 4B side branch can learn them through LoRA without
+mixing them into the math/STEM adapter schedule.
+
+- `H:/elt_data/synthetic_v1_code_gb`: `1,073,743,448` bytes, `525,172`
+  accepted records, sampled verifier pass `1.0`, exact duplicates `0`.
+- `H:/elt_data/synthetic_v1_tool_gb`: `1,073,742,896` bytes, `724,384`
+  accepted records, sampled verifier pass `1.0`, exact duplicates `0`.
+
+Both dedicated artifacts were uploaded to Hugging Face:
+
+- `https://huggingface.co/datasets/zapabobouj/elt-synthetic-v1-code-gb`
+- `https://huggingface.co/datasets/zapabobouj/elt-synthetic-v1-tool-gb`
+
+The dedicated code corpus covers Python executable tasks plus Rust 2024, Go,
+TypeScript, and C# static-spec harnesses. The tool corpus covers JSON-match
+tool calls, MCP file/search/resource/dataset/status operations, AI-agent dry
+run planning, browser inspection, memory search, static/security scan,
+checkpoint resume checks, eval reranking, and CI matrix harnesses.
+
 # LoRA Handoff
 
-The dedicated math/STEM GB corpora should feed the 4B side branch through
-adapter-only LoRA before later GRPO/eval stages. Full 4B fine-tuning is avoided.
-New configs isolate those runs:
+The dedicated code/math/STEM/tool GB corpora should feed the 4B side branch
+through adapter-only LoRA before later GRPO/eval stages. Full 4B fine-tuning is
+avoided. New configs isolate those runs:
 
+- `configs/qwen35_4b_side_lora_code_sft_synthetic_gb.yaml`
 - `configs/qwen35_4b_side_lora_math_sft_synthetic_gb.yaml`
 - `configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml`
+- `configs/qwen35_4b_side_lora_tool_sft_synthetic_gb.yaml`
 
 The pipeline profile is `synthetic-gb-side-lora`:
 
-1. prepare `H:/elt_data/synthetic_v1_math_gb/math` and
-   `H:/elt_data/synthetic_v1_stem_gb/stem_reasoning`
-2. run 4B side LoRA SFT for math then STEM
+1. prepare `H:/elt_data/synthetic_v1_code_gb/code`,
+   `H:/elt_data/synthetic_v1_math_gb/math`,
+   `H:/elt_data/synthetic_v1_stem_gb/stem_reasoning`, and
+   `H:/elt_data/synthetic_v1_tool_gb/tool_use`
+2. run 4B side LoRA SFT for code, math, STEM, then tool-use
 3. export adapter-only artifacts
 4. run eval compare
 
@@ -96,6 +122,10 @@ Prepare was executed successfully. Token inventory:
   `101,160,065` train tokens, `14,366,028` val tokens
 - stem_reasoning: `515,320` train records, `73,618` val records,
   `77,833,888` train tokens, `11,014,091` val tokens
+- code: `459,525` train records, `65,647` val records,
+  `85,610,590` train tokens, `12,128,176` val tokens
+- tool_use: `633,836` train records, `90,548` val records,
+  `77,545,121` train tokens, `11,035,548` val tokens
 
 The Qwen3.5-4B side bootstrap checkpoint exists at
 `H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt`.

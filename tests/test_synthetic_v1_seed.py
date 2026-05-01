@@ -26,6 +26,17 @@ def test_code_seed_covers_requested_languages() -> None:
     assert target_kinds == {"python_exec", "code_static_spec"}
 
 
+def test_tool_seed_covers_mcp_and_agent_harnesses() -> None:
+    examples = generate_lane_examples("tool_use", 24)
+    tool_names = {example.example["tool_name"] for example in examples}
+
+    assert any(name.startswith("mcp.") for name in tool_names)
+    assert any(name.startswith("agent.") for name in tool_names)
+    assert "mcp.tools.list" in tool_names
+    assert "agent.plan.execute" in tool_names
+    assert "agent.ci.matrix" in tool_names
+
+
 def test_build_synthetic_seed_bundle_writes_verifier_backed_lanes(tmp_path: Path) -> None:
     summary = build_synthetic_seed_bundle(
         output_root=tmp_path,

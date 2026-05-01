@@ -657,8 +657,10 @@ def test_learning_configs_keep_five_minute_three_slot_rolling() -> None:
         "configs/qwen35_4b_side_lora_stem_sft.yaml",
         "configs/qwen35_4b_side_lora_tool_sft.yaml",
         "configs/qwen35_4b_side_lora_code_ilsd_l2.yaml",
+        "configs/qwen35_4b_side_lora_code_sft_synthetic_gb.yaml",
         "configs/qwen35_4b_side_lora_math_sft_synthetic_gb.yaml",
         "configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml",
+        "configs/qwen35_4b_side_lora_tool_sft_synthetic_gb.yaml",
     ]
     for rel in configs:
         payload = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
@@ -733,8 +735,10 @@ def test_side_lora_configs_avoid_bitsandbytes_and_nvme_state() -> None:
         "configs/qwen35_4b_side_lora_stem_sft.yaml",
         "configs/qwen35_4b_side_lora_tool_sft.yaml",
         "configs/qwen35_4b_side_lora_code_ilsd_l2.yaml",
+        "configs/qwen35_4b_side_lora_code_sft_synthetic_gb.yaml",
         "configs/qwen35_4b_side_lora_math_sft_synthetic_gb.yaml",
         "configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml",
+        "configs/qwen35_4b_side_lora_tool_sft_synthetic_gb.yaml",
     ]:
         payload = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
         assert payload["optim"]["kind"] == "adamw", rel
