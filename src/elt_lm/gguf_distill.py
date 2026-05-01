@@ -1626,6 +1626,7 @@ def build_teacher_instruction(
                 "- Treat warning-zero as a data contract: code should pass ruff check and mypy --strict when those tools are available.\n"
                 "- verifier_snippet must contain meaningful assert statements with expected values for nominal and edge cases.\n"
                 "- Do not use a callable-only verifier such as assert callable(...).\n"
+                "- Keep assistant_code compact: one small module, at most about 90 lines, no version guards unless necessary.\n"
             )
         return (
             "Create one synthetic MILSPEC-style Python coding training example for software-engineering SFT.\n"

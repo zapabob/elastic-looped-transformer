@@ -10,7 +10,7 @@ teacher:
   threads: 8
   temperature: 0.2
   top_p: 0.95
-  max_new_tokens: 512
+  max_new_tokens: 2048
   timeout_sec: 600
   reasoning: "off"
   reasoning_budget: 0

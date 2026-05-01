@@ -39,6 +39,9 @@ sources, and make the resumable Windows cron pipeline run the v1 path with
 - The HauhauCS v1 GGUF configs now launch `llama-server` with
   `--reasoning off --reasoning-budget 0 --reasoning-format none`; Qwen was
   otherwise spending the entire completion budget in `reasoning_content`.
+- v1 generation budgets were raised after the first non-thinking code outputs
+  still truncated before valid JSON completion: code uses 2048 tokens; math,
+  STEM, and tool-use use 1024 tokens.
 - HF dataset fetching is implemented as a reviewed/sampled acquisition stage.
   Sensitive corpora are retained for detection, contrastive, or boundary
   evaluation use, not as operational harm targets.
