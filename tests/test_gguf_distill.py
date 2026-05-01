@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import pytest
+import yaml
 
 from elt_lm.gguf_distill import (
+    build_teacher_instruction,
     build_hf_cli_plan,
     build_status_snapshot,
     build_sft_record,
@@ -15,9 +17,55 @@ from elt_lm.gguf_distill import (
     load_gguf_distill_config,
     acquire_run_lock,
     normalize_teacher_example,
+    assert_quality_gate,
     DistillTask,
+    DistillQualityError,
+    QualityGateError,
     write_status_artifacts,
+    validate_distill_record_quality,
 )
+
+
+def _quality_cfg(tmp_path: Path, lane: str):
+    cfg_path = tmp_path / f"gguf_{lane}_v1.yaml"
+    cfg_path.write_text(
+        f"""
+teacher:
+  model_path: C:/models/teacher.gguf
+pipeline:
+  output_root: H:/elt_data/gguf_distill/{lane}_v1
+  samples_per_task: 2
+  quality_profile: v1
+  reject_fallback_outputs: true
+  min_unique_text_ratio: 0.75
+  max_exact_duplicate_ratio: 0.10
+  max_generation_retries: 3
+lane: {lane}
+""".strip(),
+        encoding="utf-8",
+    )
+    return load_gguf_distill_config(cfg_path)
+
+
+def _lane_task(lane: str, variant_index: int = 0) -> DistillTask:
+    target_kind = {
+        "code": "python_exec",
+        "math": "exact_math",
+        "stem_reasoning": "mcq_reasoning",
+        "tool_use": "json_match",
+    }[lane]
+    return DistillTask(
+        lane=lane,  # type: ignore[arg-type]
+        domain=f"{lane}_quality",
+        description=f"{lane} quality task",
+        target_kind=target_kind,
+        tags=["shell_command"] if lane == "tool_use" else [lane],
+        target_label="",
+        risk_tags=[],
+        variant_index=variant_index,
+        mode="standard",
+        variant="quality unit test",
+    )
 
 
 def test_load_config_and_build_task_specs(tmp_path: Path) -> None:
@@ -374,3 +422,300 @@ def test_guard_against_unsafe_reset_allows_explicit_force_reset(tmp_path: Path) 
         (raw_path, train_path, val_path),
         force_reset=True,
     )
+
+
+def test_v1_rejects_code_return_none_fallback_and_callable_only_verifier(tmp_path: Path) -> None:
+    cfg = _quality_cfg(tmp_path, "code")
+    cfg.pipeline.reject_fallback_outputs = False
+    task = _lane_task("code")
+    fallback_example = {
+        "user_request": "Write a function solve().",
+        "assistant_code": "def solve() -> None:\n    return None",
+        "verifier_snippet": "result = locals().get('solve')\nassert callable(result)",
+        "rationale": "placeholder",
+    }
+    fallback_record = build_sft_record(
+        task=task,
+        example=fallback_example,
+        teacher_name="hauhaucs",
+        split="train",
+    )
+
+    with pytest.raises(DistillQualityError, match="fallback_code_stub"):
+        validate_distill_record_quality(fallback_record, fallback_example, task, cfg)
+
+    callable_example = {
+        "user_request": "Write an add function.",
+        "assistant_code": "def add(a: int, b: int) -> int:\n    total = a + b\n    return total",
+        "verifier_snippet": "result = locals().get('add')\nassert callable(result)",
+        "rationale": "valid code but weak verifier",
+    }
+    callable_record = build_sft_record(
+        task=task,
+        example=callable_example,
+        teacher_name="hauhaucs",
+        split="train",
+    )
+    with pytest.raises(DistillQualityError, match="callable_only_verifier"):
+        validate_distill_record_quality(callable_record, callable_example, task, cfg)
+
+    summary = evaluate_distill_records(
+        [fallback_record],
+        quality_counters={"fallback_reject_count": 1},
+        run_verifiers=False,
+    )
+    assert summary["fallback_reject_count"] > 0
+
+
+def test_v1_rejects_untyped_code_even_when_executable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import elt_lm.gguf_distill as gguf_distill
+
+    monkeypatch.setattr(gguf_distill, "python_exec_correctness", lambda *_args, **_kwargs: 1.0)
+    cfg = _quality_cfg(tmp_path, "code")
+    task = _lane_task("code")
+    example = {
+        "user_request": "Write add(a, b) returning the sum, including negative values.",
+        "assistant_code": (
+            "def add(a, b):\n"
+            "    total = a + b\n"
+            "    if total == 0:\n"
+            "        return 0\n"
+            "    return total\n"
+        ),
+        "verifier_snippet": "assert add(2, 3) == 5\nassert add(-1, 1) == 0",
+        "rationale": "executable but not MILSPEC-style typed code",
+    }
+    record = build_sft_record(task=task, example=example, teacher_name="hauhaucs", split="train")
+
+    with pytest.raises(DistillQualityError, match="missing_typed_public_callable"):
+        validate_distill_record_quality(record, example, task, cfg)
+
+
+def test_v1_accepts_code_with_assert_verifier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import elt_lm.gguf_distill as gguf_distill
+
+    monkeypatch.setattr(gguf_distill, "python_exec_correctness", lambda *_args, **_kwargs: 1.0)
+    monkeypatch.setattr(gguf_distill, "ruff_check_score", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(gguf_distill, "mypy_strict_score", lambda *_args, **_kwargs: None)
+    cfg = _quality_cfg(tmp_path, "code")
+    task = _lane_task("code")
+    example = {
+        "user_request": "Write add(a, b) returning the sum, including negative values.",
+        "assistant_code": "def add(a: int, b: int) -> int:\n    return a + b",
+        "verifier_snippet": "assert add(2, 3) == 5\nassert add(-1, 1) == 0",
+        "rationale": "asserts nominal and edge cases",
+    }
+    record = build_sft_record(task=task, example=example, teacher_name="hauhaucs", split="train")
+
+    validate_distill_record_quality(record, example, task, cfg)
+
+
+def test_v1_rejects_math_zero_fallback_and_accepts_equivalent_answer(tmp_path: Path) -> None:
+    cfg = _quality_cfg(tmp_path, "math")
+    task = _lane_task("math")
+    zero_example = {
+        "question": "What is 1 - 1?",
+        "reasoning": "Subtracting gives zero.",
+        "final_answer": "0",
+        "reference": "0",
+        "rationale": "computed answer",
+    }
+    zero_record = build_sft_record(task=task, example=zero_example, teacher_name="hauhaucs", split="train")
+    with pytest.raises(DistillQualityError, match="fallback_zero_answer"):
+        validate_distill_record_quality(zero_record, zero_example, task, cfg)
+
+    equivalent_example = {
+        "question": "A fair coin is flipped once. What is the probability of heads?",
+        "reasoning": "There is one favorable outcome out of two equally likely outcomes.",
+        "final_answer": "1/2",
+        "reference": "0.5",
+        "rationale": "numeric equivalence should pass",
+    }
+    equivalent_record = build_sft_record(
+        task=task,
+        example=equivalent_example,
+        teacher_name="hauhaucs",
+        split="train",
+    )
+    validate_distill_record_quality(equivalent_record, equivalent_example, task, cfg)
+
+
+def test_v1_rejects_stem_placeholder_choices_and_biased_distribution(tmp_path: Path) -> None:
+    cfg = _quality_cfg(tmp_path, "stem_reasoning")
+    task = _lane_task("stem_reasoning", variant_index=0)
+    placeholder_example = {
+        "question": "Which option is correct?",
+        "choices": ["A. Option A", "B. Option B", "C. Option C", "D. Option D"],
+        "reasoning": "Pick A.",
+        "final_choice": "A",
+        "reference": "A",
+        "rationale": "placeholder choices",
+    }
+    placeholder_record = build_sft_record(
+        task=task,
+        example=placeholder_example,
+        teacher_name="hauhaucs",
+        split="train",
+    )
+    with pytest.raises(DistillQualityError, match="placeholder_stem_choices"):
+        validate_distill_record_quality(placeholder_record, placeholder_example, task, cfg)
+
+    records = []
+    for idx in range(4):
+        example = {
+            "question": f"Question {idx}: what is the SI unit of force?",
+            "choices": ["A. newton", "B. joule", "C. watt", "D. pascal"],
+            "reasoning": "Force is measured in newtons.",
+            "final_choice": "A",
+            "reference": "A",
+            "rationale": "real choices but biased label",
+        }
+        records.append(build_sft_record(task=task, example=example, teacher_name="hauhaucs", split="train"))
+    summary = evaluate_distill_records(records, quality_counters={"attempted_tasks": 4}, run_verifiers=True)
+    with pytest.raises(QualityGateError, match="answer distribution"):
+        assert_quality_gate(summary, cfg)
+
+
+def test_v1_rejects_empty_and_non_mcp_tool_arguments_and_accepts_exact_json(tmp_path: Path) -> None:
+    cfg = _quality_cfg(tmp_path, "tool_use")
+    task = _lane_task("tool_use")
+    empty_example = {
+        "user_request": "List files.",
+        "tool_name": "mcp.shell_command",
+        "arguments": {},
+        "reference": {"tool_name": "mcp.shell_command", "arguments": {}},
+        "rationale": "empty arguments are not useful",
+    }
+    empty_record = build_sft_record(task=task, example=empty_example, teacher_name="hauhaucs", split="train")
+    with pytest.raises(DistillQualityError, match="empty_tool_arguments"):
+        validate_distill_record_quality(empty_record, empty_example, task, cfg)
+
+    non_mcp_example = {
+        "user_request": "Search Python files for TODO comments.",
+        "tool_name": "shell_command",
+        "arguments": {"command": "Select-String -Path ./**/*.py -Pattern TODO", "timeout_ms": 20000},
+        "reference": {
+            "tool_name": "shell_command",
+            "arguments": {"command": "Select-String -Path ./**/*.py -Pattern TODO", "timeout_ms": 20000},
+        },
+        "rationale": "legacy direct tool call without MCP or agent harness prefix",
+    }
+    non_mcp_record = build_sft_record(task=task, example=non_mcp_example, teacher_name="hauhaucs", split="train")
+    with pytest.raises(DistillQualityError, match="non_mcp_agent_tool_name"):
+        validate_distill_record_quality(non_mcp_record, non_mcp_example, task, cfg)
+
+    good_example = {
+        "user_request": "Search Python files for TODO comments.",
+        "tool_name": "mcp.shell_command",
+        "arguments": {
+            "server": "local-powershell",
+            "tool": "shell_command",
+            "input": {"command": "Select-String -Path ./**/*.py -Pattern TODO"},
+            "cwd": "C:/repo",
+            "timeout_ms": 20000,
+            "expected_observation": "matching file paths and lines",
+            "safety": "read_only",
+        },
+        "reference": {
+            "tool_name": "mcp.shell_command",
+            "arguments": {
+                "server": "local-powershell",
+                "tool": "shell_command",
+                "input": {"command": "Select-String -Path ./**/*.py -Pattern TODO"},
+                "cwd": "C:/repo",
+                "timeout_ms": 20000,
+                "expected_observation": "matching file paths and lines",
+                "safety": "read_only",
+            },
+        },
+        "rationale": "exact non-empty JSON call",
+    }
+    good_record = build_sft_record(task=task, example=good_example, teacher_name="hauhaucs", split="train")
+    validate_distill_record_quality(good_record, good_example, task, cfg)
+
+
+def test_v1_quality_gate_fails_duplicate_text_ratio(tmp_path: Path) -> None:
+    cfg = _quality_cfg(tmp_path, "tool_use")
+    task = _lane_task("tool_use")
+    example = {
+        "user_request": "Search Python files for TODO comments.",
+        "tool_name": "mcp.shell_command",
+        "arguments": {
+            "server": "local-powershell",
+            "tool": "shell_command",
+            "input": {"command": "Select-String -Path ./**/*.py -Pattern TODO"},
+            "cwd": "C:/repo",
+        },
+        "reference": {
+            "tool_name": "mcp.shell_command",
+            "arguments": {
+                "server": "local-powershell",
+                "tool": "shell_command",
+                "input": {"command": "Select-String -Path ./**/*.py -Pattern TODO"},
+                "cwd": "C:/repo",
+            },
+        },
+        "rationale": "exact non-empty JSON call",
+    }
+    record = build_sft_record(task=task, example=example, teacher_name="hauhaucs", split="train")
+    summary = evaluate_distill_records([record, dict(record)], quality_counters={"attempted_tasks": 2}, run_verifiers=True)
+
+    assert summary["exact_duplicate_count"] == 1
+    assert summary["unique_text_ratio"] == 0.5
+    with pytest.raises(QualityGateError, match="unique_text_ratio"):
+        assert_quality_gate(summary, cfg)
+
+
+def test_hauhaucs_v1_configs_use_separate_quality_output_roots() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    config_names = [
+        "gguf_distill_code_qwen35_hauhaucs_v1.yaml",
+        "gguf_distill_math_qwen35_hauhaucs_v1.yaml",
+        "gguf_distill_stem_qwen35_hauhaucs_v1.yaml",
+        "gguf_distill_tool_qwen35_hauhaucs_v1.yaml",
+    ]
+
+    for name in config_names:
+        cfg = load_gguf_distill_config(project_root / "configs" / name)
+        assert cfg.pipeline.quality_profile == "v1"
+        assert cfg.pipeline.reject_fallback_outputs is True
+        assert cfg.pipeline.max_generation_retries == 3
+        assert cfg.pipeline.output_root.endswith("_v1")
+        assert cfg.pipeline.output_root != cfg.pipeline.output_root.removesuffix("_v1")
+
+
+def test_v1_teacher_instructions_encode_lane_quality_requirements() -> None:
+    code_prompt = build_teacher_instruction(_lane_task("code"), quality_profile="v1")
+    assert "MILSPEC-style Python" in code_prompt
+    assert "mypy --strict" in code_prompt
+    assert "complete parameter and return type annotations" in code_prompt
+
+    math_prompt = build_teacher_instruction(_lane_task("math"), quality_profile="v1")
+    assert "MATH/AIME/GPQA-style" in math_prompt
+    assert "ELT loop refinement" in math_prompt
+
+    stem_prompt = build_teacher_instruction(_lane_task("stem_reasoning"), quality_profile="v1")
+    assert "multi-perspective STEM reasoning" in stem_prompt
+    assert "patient-specific diagnosis" in stem_prompt
+
+    tool_prompt = build_teacher_instruction(_lane_task("tool_use"), quality_profile="v1")
+    assert "MCP / AI-agent harness" in tool_prompt
+    assert "beginning with 'mcp.' or 'agent.'" in tool_prompt
+
+
+def test_hf_dataset_mix_v1_manifest_documents_lane_sources_and_sensitive_routing() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    manifest = yaml.safe_load((project_root / "configs" / "hf_dataset_mix_v1.yaml").read_text(encoding="utf-8"))
+
+    assert manifest["policy"]["broad_knowledge_default"] == "preserve"
+    assert "directly actionable crime, procurement, evasion, or weaponization instructions" in manifest["policy"]["excluded_from_sft_targets"]
+    assert "AI-MO/NuminaMath-1.5" in {
+        source["repo_id"] for source in manifest["lanes"]["math"]["primary_hf_sources"]
+    }
+    assert "glaiveai/glaive-function-calling-v2" in {
+        source["repo_id"] for source in manifest["lanes"]["tool_use"]["primary_hf_sources"]
+    }
+    assert "allenai/real-toxicity-prompts" in {
+        source["repo_id"]
+        for source in manifest["lanes"]["safety_and_sensitive_understanding"]["primary_hf_sources"]
+    }

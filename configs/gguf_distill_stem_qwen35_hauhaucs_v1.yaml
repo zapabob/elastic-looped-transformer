@@ -1,0 +1,71 @@
+teacher:
+  name: qwen3.5-9b-uncensored-hauhaucs-aggressive-q8_0-gguf
+  server_bin: llama-server.exe
+  model_path: C:/Users/downl/Desktop/EasyNovelAssistant/EasyNovelAssistant/KoboldCpp/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf
+  use_mmproj: false
+  host: 127.0.0.1
+  port: 8092
+  ctx_size: 4096
+  n_gpu_layers: 40
+  threads: 8
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 512
+  timeout_sec: 600
+
+pipeline:
+  output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_stem_reasoning_v1
+  repo_id: zapabobouj/elt-lm-gguf-distill-qwen35-hauhaucs-stem-reasoning-v1
+  private: true
+  repo_type: dataset
+  samples_per_task: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
+  student_ckpt: ""
+  benchmark_manifest: ""
+  benchmark_out: student_eval.csv
+  quality_profile: v1
+  reject_fallback_outputs: true
+  min_unique_text_ratio: 0.75
+  max_exact_duplicate_ratio: 0.10
+  max_generation_retries: 3
+
+lane: stem_reasoning
+
+tasks:
+  - name: physics_reasoning
+    description: create physics reasoning cases with real choices, quantitative constraints, and a clear best answer
+    target_kind: mcq_reasoning
+    tags: [physics, mechanics, quantitative_reasoning]
+    variants:
+      - mechanics problem combining forces, energy conservation, and dimensional checks
+      - circuits or fields problem requiring qualitative and quantitative elimination
+      - waves, optics, or sound problem with one misleading distractor
+      - units, orders of magnitude, or scaling argument across multiple constraints
+  - name: chemistry_reasoning
+    description: create chemistry reasoning cases with real distractors and verifier-friendly final choices
+    target_kind: mcq_reasoning
+    tags: [chemistry, reactions, scientific_reasoning]
+    variants:
+      - stoichiometry or balancing reactions with a numerical or limiting-reagent clue
+      - acids, bases, pH, or buffer reasoning with plausible distractors
+      - bonding, polarity, or intermolecular forces with structure-property reasoning
+      - thermochemistry, kinetics, or equilibrium with one tempting misconception
+  - name: biology_reasoning
+    description: create biology and biomedical reasoning cases that stay educational and avoid patient-specific advice
+    target_kind: mcq_reasoning
+    tags: [biology, medicine, life_science, biomedical_reasoning]
+    variants:
+      - genetics and inheritance with probability or mechanism reasoning
+      - cell biology, metabolism, or molecular pathway reasoning
+      - physiology or biomedical mechanism question without diagnosis, dosage, or treatment instructions
+      - ecology, evolution, or epidemiology with causal and statistical interpretation
+  - name: cs_and_statistics_reasoning
+    description: create computer science, statistics, and engineering reasoning cases with real technical choices
+    target_kind: mcq_reasoning
+    tags: [computer_science, statistics, engineering]
+    variants:
+      - algorithm complexity, data structures, or systems tradeoff reasoning
+      - networking, operating systems, or reliability concepts
+      - sampling, bias, hypothesis testing, or causal inference
+      - probability interpretation, experimental design, or measurement uncertainty

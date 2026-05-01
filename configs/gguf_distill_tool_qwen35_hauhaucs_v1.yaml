@@ -1,0 +1,71 @@
+teacher:
+  name: qwen3.5-9b-uncensored-hauhaucs-aggressive-q8_0-gguf
+  server_bin: llama-server.exe
+  model_path: C:/Users/downl/Desktop/EasyNovelAssistant/EasyNovelAssistant/KoboldCpp/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf
+  use_mmproj: false
+  host: 127.0.0.1
+  port: 8092
+  ctx_size: 4096
+  n_gpu_layers: 40
+  threads: 8
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 512
+  timeout_sec: 600
+
+pipeline:
+  output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_tool_use_v1
+  repo_id: zapabobouj/elt-lm-gguf-distill-qwen35-hauhaucs-tool-use-v1
+  private: true
+  repo_type: dataset
+  samples_per_task: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
+  student_ckpt: ""
+  benchmark_manifest: ""
+  benchmark_out: student_eval.csv
+  quality_profile: v1
+  reject_fallback_outputs: true
+  min_unique_text_ratio: 0.75
+  max_exact_duplicate_ratio: 0.10
+  max_generation_retries: 3
+
+lane: tool_use
+
+tasks:
+  - name: mcp_filesystem_and_shell_harness
+    description: choose an MCP or agent harness call for read-only filesystem, shell, or process inspection with concrete arguments
+    target_kind: json_match
+    tags: [mcp, agent_harness, shell_command, filesystem]
+    variants:
+      - inspect files in a workspace with concrete cwd, path, and expected observation
+      - search for matching text or filenames with a specific pattern and timeout
+      - run a short read-only diagnostic command with explicit command text and safety field
+      - summarize git status or repository state with concrete cwd and non-destructive intent
+  - name: mcp_python_analysis_harness
+    description: choose an MCP or agent Python execution call for lightweight computation, parsing, or verification
+    target_kind: json_match
+    tags: [mcp, agent_harness, python_exec, scripting]
+    variants:
+      - transform or aggregate structured data with an embedded code string and expected output shape
+      - parse JSON and compute a small summary with explicit input payload
+      - evaluate a numerical expression or algorithm for verifier-backed reasoning
+      - generate a compact derived artifact from text without filesystem side effects
+  - name: mcp_retrieval_and_hf_lookup
+    description: choose an MCP retrieval, web, or Hugging Face lookup call for source-backed current information
+    target_kind: json_match
+    tags: [mcp, retrieval, huggingface, web_search]
+    variants:
+      - fetch an official documentation page with query and domain constraints
+      - look up a recent public fact with source requirement and recency hint
+      - retrieve a benchmark, model card, or dataset card from Hugging Face
+      - collect source-backed citations for a claim with exact query terms
+  - name: structured_agent_plan_call
+    description: choose a structured agent orchestration call with precise JSON arguments and safe execution boundaries
+    target_kind: json_match
+    tags: [mcp, agent_harness, json_match, function_calling]
+    variants:
+      - emit a validated JSON payload for a named MCP server tool
+      - select the best function and arguments from a short user request while preserving schema correctness
+      - encode a safe multi-step agent harness request with read_only or dry_run flags
+      - avoid prose and output only the exact structured call object

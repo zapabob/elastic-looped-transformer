@@ -13,6 +13,7 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [switch]$StartLongTrain,
+    [switch]$WriteLauncherOnly,
     [ValidateSet("full", "posttrain-grpo", "side-lora")]
     [string]$Profile = "full"
 )
@@ -22,7 +23,24 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $taskName = "ELT-LM-Pipeline"
 $logDir   = "H:\elt_data\pipeline_logs"
+$cacheRoot = "H:\elt_data\cache"
+$tempDir = Join-Path $cacheRoot "tmp"
 $null = New-Item -ItemType Directory -Force -Path $logDir
+$null = New-Item -ItemType Directory -Force -Path $tempDir
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "uv")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "uv\python")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "uv\tools")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "pip")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "hf")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "hf\datasets")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "torch")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "triton")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "torchinductor")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "cuda")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "numba")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "matplotlib")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "xdg")
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "pycache")
 
 $launcher = Join-Path $logDir "pipeline_launcher.ps1"
 $startLongTrainEnv = if ($StartLongTrain) { "1" } else { "" }
@@ -31,8 +49,38 @@ $launcherBody = @"
 `$ErrorActionPreference = "Continue"
 `$repoRoot = "$repoRoot"
 `$logDir   = "$logDir"
+`$cacheRoot = "$cacheRoot"
+`$tempDir = "$tempDir"
 `$env:ELT_PIPELINE_START_LONG = "$startLongTrainEnv"
 `$env:ELT_PIPELINE_PROFILE = "$Profile"
+`$env:TMP = `$tempDir
+`$env:TEMP = `$tempDir
+`$env:TMPDIR = `$tempDir
+`$env:UV_CACHE_DIR = Join-Path `$cacheRoot "uv"
+`$env:UV_PYTHON_INSTALL_DIR = Join-Path `$env:UV_CACHE_DIR "python"
+`$env:UV_TOOL_DIR = Join-Path `$env:UV_CACHE_DIR "tools"
+`$env:PIP_CACHE_DIR = Join-Path `$cacheRoot "pip"
+`$env:HF_HOME = Join-Path `$cacheRoot "hf"
+`$env:HF_HUB_CACHE = Join-Path `$env:HF_HOME "hub"
+`$env:HF_DATASETS_CACHE = Join-Path `$env:HF_HOME "datasets"
+`$env:TRANSFORMERS_CACHE = Join-Path `$env:HF_HOME "transformers"
+`$env:TORCH_HOME = Join-Path `$cacheRoot "torch"
+`$env:XDG_CACHE_HOME = Join-Path `$cacheRoot "xdg"
+`$env:TRITON_CACHE_DIR = Join-Path `$cacheRoot "triton"
+`$env:TORCHINDUCTOR_CACHE_DIR = Join-Path `$cacheRoot "torchinductor"
+`$env:CUDA_CACHE_PATH = Join-Path `$cacheRoot "cuda"
+`$env:NUMBA_CACHE_DIR = Join-Path `$cacheRoot "numba"
+`$env:MPLCONFIGDIR = Join-Path `$cacheRoot "matplotlib"
+`$env:PYTHONPYCACHEPREFIX = Join-Path `$cacheRoot "pycache"
+foreach (`$path in @(
+    `$env:TMP, `$env:UV_CACHE_DIR, `$env:UV_PYTHON_INSTALL_DIR, `$env:UV_TOOL_DIR,
+    `$env:PIP_CACHE_DIR, `$env:HF_HOME, `$env:HF_HUB_CACHE, `$env:HF_DATASETS_CACHE,
+    `$env:TRANSFORMERS_CACHE, `$env:TORCH_HOME,
+    `$env:XDG_CACHE_HOME, `$env:TRITON_CACHE_DIR, `$env:TORCHINDUCTOR_CACHE_DIR,
+    `$env:CUDA_CACHE_PATH, `$env:NUMBA_CACHE_DIR, `$env:MPLCONFIGDIR, `$env:PYTHONPYCACHEPREFIX
+)) {
+    `$null = New-Item -ItemType Directory -Force -Path `$path
+}
 `$stamp    = Get-Date -Format "yyyyMMdd-HHmmss"
 `$logFile  = Join-Path `$logDir "pipeline-`$stamp.log"
 `$pipelineArgs = @("--profile", "$Profile")
@@ -43,6 +91,7 @@ if (`$env:ELT_PIPELINE_START_LONG -ne "1") {
 Set-Location `$repoRoot
 Write-Output "=== tick `$stamp, repo=`$repoRoot ===" | Tee-Object -FilePath `$logFile
 Write-Output "pipeline args: `$(`$pipelineArgs -join ' ')" | Tee-Object -Append -FilePath `$logFile
+Write-Output "runtime cache: `$cacheRoot" | Tee-Object -Append -FilePath `$logFile
 
 try {
     & uv run --no-sync python scripts/pipeline.py @pipelineArgs *>&1 | Tee-Object -Append -FilePath `$logFile
@@ -57,6 +106,13 @@ if ($PSCmdlet.ShouldProcess($launcher, "write launcher")) {
     Write-Output "  wrote launcher: $launcher"
 } else {
     Write-Output "  would write launcher: $launcher"
+}
+
+if ($WriteLauncherOnly) {
+    Write-Output "  launcher-only mode: scheduled task registration left unchanged."
+    Write-Output "  launcher  : $launcher"
+    Write-Output "  cache     : $cacheRoot"
+    return
 }
 
 $action = New-ScheduledTaskAction `

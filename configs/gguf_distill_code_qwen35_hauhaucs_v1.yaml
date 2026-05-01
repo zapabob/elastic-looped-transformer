@@ -1,0 +1,71 @@
+teacher:
+  name: qwen3.5-9b-uncensored-hauhaucs-aggressive-q8_0-gguf
+  server_bin: llama-server.exe
+  model_path: C:/Users/downl/Desktop/EasyNovelAssistant/EasyNovelAssistant/KoboldCpp/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf
+  use_mmproj: false
+  host: 127.0.0.1
+  port: 8092
+  ctx_size: 4096
+  n_gpu_layers: 40
+  threads: 8
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 512
+  timeout_sec: 600
+
+pipeline:
+  output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_code_v1
+  repo_id: zapabobouj/elt-lm-gguf-distill-qwen35-hauhaucs-code-v1
+  private: true
+  repo_type: dataset
+  samples_per_task: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
+  student_ckpt: ""
+  benchmark_manifest: ""
+  benchmark_out: student_eval.csv
+  quality_profile: v1
+  reject_fallback_outputs: true
+  min_unique_text_ratio: 0.75
+  max_exact_duplicate_ratio: 0.10
+  max_generation_retries: 3
+
+lane: code
+
+tasks:
+  - name: milspec_typed_api_implementation
+    description: write self-contained Python 3.12 APIs with complete type annotations, explicit contracts, edge-case tests, and warning-zero intent
+    target_kind: python_exec
+    tags: [python, milspec, typing, ruff, mypy, stdlib]
+    variants:
+      - implement a pure function with typed parameters, typed return value, and deterministic examples
+      - parse structured JSON into a TypedDict or dataclass using only the standard library
+      - transform nested dictionaries with pathlib-safe or datetime-safe handling and expected outputs
+      - write a small utility with explicit ValueError behavior and assert-based boundary tests
+  - name: production_bugfix_and_patch
+    description: repair realistic Python defects while preserving typed public interfaces and proving the patch with behavioral assertions
+    target_kind: python_exec
+    tags: [python, debugging, patching, regression_tests]
+    variants:
+      - fix an off-by-one error in a typed function and prove nominal and boundary cases
+      - repair incorrect empty-input handling without broad exception swallowing
+      - correct state mutation or scoping mistakes in a small dataclass-backed component
+      - fix parsing code that mishandles whitespace, missing keys, or invalid enum values
+  - name: test_driven_engineering
+    description: produce warning-conscious Python code that satisfies a concrete behavioral contract and assert harness
+    target_kind: python_exec
+    tags: [python, testing, assertions, software_engineering]
+    variants:
+      - implement a class or function with typed input validation and direct assert tests
+      - handle normal, boundary, and malformed cases with clear errors
+      - use dataclass or Protocol when it improves the interface contract
+      - keep implementation direct-execution compatible and side-effect-light
+  - name: applied_code_reasoning
+    description: solve practical coding tasks with nontrivial reasoning, maintainable structure, and executable verification
+    target_kind: python_exec
+    tags: [python, reasoning, data_processing, maintainability]
+    variants:
+      - derive an algorithm from a concrete requirement and state edge cases in verifier assertions
+      - combine regex, parsing, and aggregation with typed intermediate structures
+      - use collections, itertools, or functools to simplify implementation without obscuring correctness
+      - favor clarity, maintainability, and deterministic behavior over micro-optimizations

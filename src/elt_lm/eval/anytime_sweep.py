@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import time
 from pathlib import Path
@@ -120,6 +121,26 @@ def _csv_value(value: float | int | str | None) -> float | int | str:
     return "" if value is None else value
 
 
+def _parse_l_list(raw: str, *, cfg: TrainConfig) -> list[int]:
+    if not raw.strip():
+        return list(range(cfg.model.L_min, cfg.model.L_max + 1))
+    values: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        value = int(part)
+        if value < cfg.model.L_min or value > cfg.model.L_max:
+            raise SystemExit(
+                f"--L-list value {value} is outside trained range "
+                f"[{cfg.model.L_min}, {cfg.model.L_max}]"
+            )
+        values.append(value)
+    if not values:
+        raise SystemExit("--L-list did not contain any loop values")
+    return values
+
+
 def run(args: argparse.Namespace) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, cfg = load_model(args.ckpt, device)
@@ -147,8 +168,8 @@ def run(args: argparse.Namespace) -> None:
     run_dir = Path(args.run_dir) if args.run_dir else Path(args.ckpt).parent
     telemetry = make_writer(run_dir)
     try:
-        first_L = cfg.model.L_min
-        L_range = range(first_L, cfg.model.L_max + 1)
+        L_range = _parse_l_list(getattr(args, "l_list", ""), cfg=cfg)
+        first_L = L_range[0]
         rows: list[dict[str, float | int | str]] = []
         benchmark_history: dict[str, dict[int, BenchmarkResult]] = {}
         for L in L_range:
@@ -212,6 +233,7 @@ def run(args: argparse.Namespace) -> None:
                 history[L] = result
                 print(
                     f"L={L}  benchmark={result.benchmark}  score={result.accuracy:.4f}  "
+                    f"format={result.format_rate:.4f}  "
                     f"gain={loop_metrics['loop_gain']:+.4f}  "
                     f"self-correct={_csv_value(loop_metrics['self_correction_rate'])}  "
                     f"overthink={_csv_value(loop_metrics['overthinking_rate'])}  "
@@ -227,6 +249,10 @@ def run(args: argparse.Namespace) -> None:
                     score=result.accuracy,
                     correct=result.correct,
                     total=result.total,
+                    format_success_rate=result.format_rate,
+                    format_correct=result.format_correct,
+                    verifier_success_rate=result.accuracy,
+                    verifier_correct=result.correct,
                     latency_ms=result.latency_ms_per_case,
                     tokens_per_sec=result.tokens_per_sec,
                     attempts_per_case=result.attempts_per_case,
@@ -244,6 +270,10 @@ def run(args: argparse.Namespace) -> None:
                     "nll": "",
                     "ppl": "",
                     "score": result.accuracy,
+                    "format_success_rate": result.format_rate,
+                    "format_correct": result.format_correct,
+                    "verifier_success_rate": result.accuracy,
+                    "verifier_correct": result.correct,
                     "tokens_per_sec": result.tokens_per_sec,
                     "latency_ms": result.latency_ms_per_case,
                     "rel_flops": approx_flops,
@@ -269,6 +299,10 @@ def run(args: argparse.Namespace) -> None:
                         "nll",
                         "ppl",
                         "score",
+                        "format_success_rate",
+                        "format_correct",
+                        "verifier_success_rate",
+                        "verifier_correct",
                         "tokens_per_sec",
                         "latency_ms",
                         "rel_flops",
@@ -284,6 +318,22 @@ def run(args: argparse.Namespace) -> None:
                 for row in rows:
                     writer.writerow(row)
             print(f"wrote {out_csv}")
+        out_json = Path(getattr(args, "out_json", "") or "") if getattr(args, "out_json", "") else None
+        if out_json:
+            out_json.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "ckpt": str(args.ckpt),
+                "benchmark_manifest": str(args.benchmark_manifest or ""),
+                "rows": rows,
+                "interpretation_note": (
+                    "For v0 HauhauCS stem data, high format/verifier rates mainly "
+                    "indicate schema memorization on a small duplicate-heavy "
+                    "validation set; do not read them as broad STEM reasoning "
+                    "generalization without v1 quality-gated benchmarks."
+                ),
+            }
+            out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"wrote {out_json}")
     finally:
         telemetry.close()
 
@@ -301,7 +351,9 @@ def cli() -> None:
     p.add_argument("--bench-top-k", type=int, default=1)
     p.add_argument("--bench-num-samples", type=int, default=1)
     p.add_argument("--bench-verifier-retries", type=int, default=0)
+    p.add_argument("--L-list", dest="l_list", type=str, default="")
     p.add_argument("--out-csv", type=str, default="")
+    p.add_argument("--out-json", type=str, default="")
     p.add_argument(
         "--run-dir",
         type=str,

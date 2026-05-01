@@ -53,6 +53,7 @@ def test_posttrain_grpo_profile_runs_distilled_sft_then_kl_grpo() -> None:
         "01_detection_sft",
         "02_prepare_hauhaucs_lanes",
         "03_hauhaucs_lane_sft",
+        "03a_stem_sft_val_eval",
         "04_kl_grpo",
         "05_side_lora_ilsd",
         "06_export_side_lora_adapters",
@@ -89,6 +90,185 @@ def test_build_training_command_adds_resume_when_last_exists(tmp_path: Path) -> 
     assert plan.cmd[-2:] == ["--resume", str(run_dir / "last.pt")]
 
 
+def test_stem_sft_val_eval_builds_format_verifier_anytime_command(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    run_dir = tmp_path / "stem_run"
+    eval_dir = run_dir / "eval"
+    run_dir.mkdir()
+    (run_dir / "last.pt").write_bytes(b"checkpoint")
+    (run_dir / "metrics.jsonl").write_text(
+        "\n".join([
+            json.dumps({"event": "checkpoint", "kind": "final", "step": 40}),
+            json.dumps({"event": "run_end"}),
+        ]),
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "stem.yaml"
+    cfg.write_text(
+        f"run_dir: {run_dir.as_posix()}\ntotal_steps: 40\n",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "stem_manifest.yaml"
+    manifest.write_text("benchmarks: []\n", encoding="utf-8")
+    out_json = eval_dir / "stem_val_format_verifier_summary.json"
+    out_csv = eval_dir / "stem_val_format_verifier_anytime.csv"
+    bench_dir = tmp_path / "benchmarks"
+    bench_dir.mkdir()
+    clean_cases = bench_dir / "gguf_stem_reasoning_val_cases.jsonl"
+    clean_cases.write_text(
+        "\n".join([
+            json.dumps({
+                "prompt": "Question: real A\nChoices:\nA. alpha\nB. beta\nC. gamma\nD. delta",
+                "reference": "A",
+            }),
+            json.dumps({
+                "prompt": "Question: real B\nChoices:\nA. alpha\nB. beta\nC. gamma\nD. delta",
+                "reference": "B",
+            }),
+        ]),
+        encoding="utf-8",
+    )
+    manifest = bench_dir / "stem_manifest.yaml"
+    manifest.write_text("benchmarks: []\n", encoding="utf-8")
+    captured: list[list[str]] = []
+
+    def fake_run_subprocess(cmd: list[str], *, dry_run: bool = False) -> int:
+        captured.append(cmd)
+        assert dry_run is True
+        return 0
+
+    monkeypatch.setattr(mod, "STEM_SFT_CONFIG", str(cfg))
+    monkeypatch.setattr(mod, "STEM_VAL_MANIFEST", manifest)
+    monkeypatch.setattr(mod, "STEM_VAL_EVAL_DIR", eval_dir)
+    monkeypatch.setattr(mod, "STEM_VAL_EVAL_JSON", out_json)
+    monkeypatch.setattr(mod, "STEM_VAL_EVAL_CSV", out_csv)
+    monkeypatch.setattr(mod, "run_subprocess", fake_run_subprocess)
+
+    mod.stage_stem_sft_val_eval(mod.PipelineContext(dry_run=True))
+
+    assert len(captured) == 1
+    cmd = captured[0]
+    assert cmd[:4] == ["uv", "run", "--no-sync", "elt-anytime"]
+    assert "--benchmark-manifest" in cmd
+    assert str(manifest) in cmd
+    assert "--out-json" in cmd
+    assert str(out_json) in cmd
+    assert "--out-csv" in cmd
+    assert str(out_csv) in cmd
+    assert "--L-list" in cmd
+    assert "1,2,3,4" in cmd
+
+
+def test_stem_sft_val_eval_skips_placeholder_v0_quality_gate(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    run_dir = tmp_path / "stem_run"
+    eval_dir = run_dir / "eval"
+    run_dir.mkdir()
+    (run_dir / "last.pt").write_bytes(b"checkpoint")
+    (run_dir / "metrics.jsonl").write_text(
+        json.dumps({"event": "checkpoint", "kind": "final", "step": 40}),
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "stem.yaml"
+    cfg.write_text(
+        f"run_dir: {run_dir.as_posix()}\ntotal_steps: 40\n",
+        encoding="utf-8",
+    )
+    bench_dir = tmp_path / "benchmarks"
+    bench_dir.mkdir()
+    cases = bench_dir / "gguf_stem_reasoning_val_cases.jsonl"
+    cases.write_text(
+        "\n".join([
+            json.dumps({
+                "prompt": "Question: duplicate\nChoices:\nA. Option A\nB. Option B\nC. Option C\nD. Option D",
+                "reference": "A",
+            }),
+            json.dumps({
+                "prompt": "Question: duplicate\nChoices:\nA. Option A\nB. Option B\nC. Option C\nD. Option D",
+                "reference": "A",
+            }),
+        ]),
+        encoding="utf-8",
+    )
+    manifest = bench_dir / "stem_manifest.yaml"
+    manifest.write_text("benchmarks: []\n", encoding="utf-8")
+    out_json = eval_dir / "stem_val_format_verifier_summary.json"
+    out_csv = eval_dir / "stem_val_format_verifier_anytime.csv"
+    captured: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "STEM_SFT_CONFIG", str(cfg))
+    monkeypatch.setattr(mod, "STEM_VAL_MANIFEST", manifest)
+    monkeypatch.setattr(mod, "STEM_VAL_EVAL_DIR", eval_dir)
+    monkeypatch.setattr(mod, "STEM_VAL_EVAL_JSON", out_json)
+    monkeypatch.setattr(mod, "STEM_VAL_EVAL_CSV", out_csv)
+    monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
+
+    mod.stage_stem_sft_val_eval(mod.PipelineContext(dry_run=True))
+
+    assert captured == []
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["state"] == "skipped_quality_gate"
+    assert payload["quality"]["placeholder_choice_count"] == 2
+    assert out_csv.exists()
+
+
+def test_v0_lane_quality_gate_blocks_smoke_fallbacks(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    input_root = tmp_path / "code_distill"
+    input_root.mkdir()
+    row = {
+        "prompt": "write a function",
+        "response": "```python\ndef solve() -> None:\n    return None\n```",
+        "reference": "result = locals().get('solve')\nassert callable(result)",
+        "text": "Assistant: ```python\ndef solve() -> None:\n    return None\n```",
+    }
+    for name in ("distill_train.jsonl", "distill_val.jsonl"):
+        (input_root / name).write_text(json.dumps(row) + "\n", encoding="utf-8")
+    state_dir = tmp_path / "state"
+    monkeypatch.setattr(mod, "STATE_DIR", state_dir)
+
+    try:
+        mod.enforce_v0_lane_quality("code", input_root)
+    except mod.PipelineError as exc:
+        assert "refusing v0 code SFT" in str(exc)
+    else:
+        raise AssertionError("expected PipelineError")
+
+    payload = json.loads((state_dir / "v0_code_quality_gate.json").read_text(encoding="utf-8"))
+    assert payload["state"] == "failed_quality_gate"
+    assert payload["quality"]["fallback_return_none"] == 4
+
+
+def test_v0_lane_quality_gate_can_be_overridden_for_explicit_smoke(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    input_root = tmp_path / "tool_distill"
+    input_root.mkdir()
+    row = {
+        "prompt": "select tool",
+        "response": '{"tool_name": "shell_command", "arguments": {}}',
+        "reference": '{"tool_name": "shell_command", "arguments": {}}',
+        "text": '{"tool_name": "shell_command", "arguments": {}}',
+    }
+    for name in ("distill_train.jsonl", "distill_val.jsonl"):
+        (input_root / name).write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    monkeypatch.setenv("ELT_ALLOW_V0_SMOKE_TRAINING", "1")
+
+    mod.enforce_v0_lane_quality("tool_use", input_root)
+
+
 def test_build_training_command_uses_initial_resume_and_vsdev(tmp_path: Path) -> None:
     mod = _load_pipeline_module()
     run_dir = tmp_path / "run"
@@ -109,6 +289,57 @@ def test_build_training_command_uses_initial_resume_and_vsdev(tmp_path: Path) ->
     assert "VsDevCmd.bat" in plan.cmd[2]
     assert "CC=cl.exe" in plan.cmd[2]
     assert str(base) in plan.cmd[2]
+
+
+def test_pipeline_subprocess_env_prefers_h_drive(monkeypatch, tmp_path: Path) -> None:
+    mod = _load_pipeline_module()
+    cache_root = tmp_path / "cache"
+    temp_dir = cache_root / "tmp"
+    monkeypatch.setattr(mod, "H_CACHE_ROOT", cache_root)
+    monkeypatch.setattr(mod, "H_TEMP_DIR", temp_dir)
+    monkeypatch.setattr(
+        mod,
+        "H_DRIVE_ENV",
+        {
+            "TMP": str(temp_dir),
+            "TEMP": str(temp_dir),
+            "TMPDIR": str(temp_dir),
+            "UV_CACHE_DIR": str(cache_root / "uv"),
+            "UV_PYTHON_INSTALL_DIR": str(cache_root / "uv" / "python"),
+            "HF_HOME": str(cache_root / "hf"),
+            "HF_DATASETS_CACHE": str(cache_root / "hf" / "datasets"),
+            "TORCH_HOME": str(cache_root / "torch"),
+            "TRITON_CACHE_DIR": str(cache_root / "triton"),
+            "CUDA_CACHE_PATH": str(cache_root / "cuda"),
+            "PYTHONPYCACHEPREFIX": str(cache_root / "pycache"),
+        },
+    )
+
+    env = mod.h_drive_subprocess_env()
+
+    assert env["TMP"] == str(temp_dir)
+    assert env["TEMP"] == str(temp_dir)
+    assert env["UV_CACHE_DIR"] == str(cache_root / "uv")
+    assert env["UV_PYTHON_INSTALL_DIR"] == str(cache_root / "uv" / "python")
+    assert env["HF_HOME"] == str(cache_root / "hf")
+    assert env["HF_DATASETS_CACHE"] == str(cache_root / "hf" / "datasets")
+    assert env["TORCH_HOME"] == str(cache_root / "torch")
+    assert env["CUDA_CACHE_PATH"] == str(cache_root / "cuda")
+    assert env["PYTHONPYCACHEPREFIX"] == str(cache_root / "pycache")
+    assert (cache_root / "hf").is_dir()
+
+
+def test_vsdev_command_sets_h_drive_cache_env() -> None:
+    mod = _load_pipeline_module()
+
+    cmd = mod.vsdev_command(["uv", "run", "python", "-V"])
+
+    assert cmd[:2] == ["cmd.exe", "/c"]
+    assert "set HF_HOME=" in cmd[2]
+    assert "set UV_CACHE_DIR=" in cmd[2]
+    assert "set TEMP=" in cmd[2]
+    assert "set CUDA_CACHE_PATH=" in cmd[2]
+    assert "set PYTHONPYCACHEPREFIX=" in cmd[2]
 
 
 def test_training_run_complete_detects_final_checkpoint(tmp_path: Path) -> None:

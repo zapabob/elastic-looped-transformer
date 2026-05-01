@@ -1,0 +1,71 @@
+teacher:
+  name: qwen3.5-9b-uncensored-hauhaucs-aggressive-q8_0-gguf
+  server_bin: llama-server.exe
+  model_path: C:/Users/downl/Desktop/EasyNovelAssistant/EasyNovelAssistant/KoboldCpp/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf
+  use_mmproj: false
+  host: 127.0.0.1
+  port: 8092
+  ctx_size: 4096
+  n_gpu_layers: 40
+  threads: 8
+  temperature: 0.2
+  top_p: 0.95
+  max_new_tokens: 512
+  timeout_sec: 600
+
+pipeline:
+  output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_math_v1
+  repo_id: zapabobouj/elt-lm-gguf-distill-qwen35-hauhaucs-math-v1
+  private: true
+  repo_type: dataset
+  samples_per_task: 32
+  heartbeat_interval_sec: 30
+  stall_after_sec: 1800
+  student_ckpt: ""
+  benchmark_manifest: ""
+  benchmark_out: student_eval.csv
+  quality_profile: v1
+  reject_fallback_outputs: true
+  min_unique_text_ratio: 0.75
+  max_exact_duplicate_ratio: 0.10
+  max_generation_retries: 3
+
+lane: math
+
+tasks:
+  - name: olympiad_algebra_reasoning
+    description: solve high-difficulty algebra and equation-manipulation problems with exact verifier-checkable answers
+    target_kind: exact_math
+    tags: [algebra, olympiad, exact_math]
+    variants:
+      - nested radicals or rational expressions that simplify to a nonzero exact value
+      - systems of equations requiring substitution, invariant discovery, or elimination
+      - polynomial factorization, roots, or symmetric expressions with exact answers
+      - inequality or functional-equation style reasoning reduced to a numeric final answer
+  - name: olympiad_number_theory
+    description: solve number theory problems requiring divisibility, modular arithmetic, or constructive counting
+    target_kind: exact_math
+    tags: [number_theory, modular_arithmetic, olympiad]
+    variants:
+      - modular arithmetic with Chinese remainder or periodicity reasoning
+      - divisibility arguments using prime valuations or gcd/lcm structure
+      - counting factors, coprime choices, or residue classes with exact final answers
+      - Diophantine constraints over small integers with a nonzero exact answer
+  - name: advanced_combinatorics_probability
+    description: answer counting and probability questions with exact values and multi-step reductions
+    target_kind: exact_math
+    tags: [combinatorics, probability, exact_fractions]
+    variants:
+      - inclusion-exclusion or casework over constrained arrangements
+      - conditional probability or expected value requiring exact fractions
+      - graph, lattice path, or recurrence counting with a compact exact answer
+      - probability interpretation with hidden dependence or symmetry
+  - name: geometry_linear_algebra_sequences
+    description: solve geometry, sequence, calculus-lite, or linear algebra questions with exact symbolic answers
+    target_kind: exact_math
+    tags: [geometry, linear_algebra, sequences, symbolic]
+    variants:
+      - coordinate geometry with area, distance, or angle relationships
+      - recurrence, arithmetic, or geometric sequence terms requiring derivation
+      - vector or small matrix computations with exact determinant/eigenvalue-style answers
+      - calculus-lite rate, area, or optimization problem reducible to an exact value

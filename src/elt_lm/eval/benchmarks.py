@@ -23,6 +23,7 @@ from elt_lm.model import ELTLanguageModel
 from elt_lm.verifiers import (
     exact_math_correctness,
     exact_match_correctness,
+    format_score,
     gsm8k_correctness,
     json_match_correctness,
     mcq_reasoning_correctness,
@@ -80,6 +81,9 @@ class BenchmarkResult:
     tokens_per_sec: float
     attempts_per_case: float
     case_correct: list[int] = field(default_factory=list)
+    format_correct: int = 0
+    format_rate: float = 0.0
+    case_format_correct: list[int] = field(default_factory=list)
 
 
 def load_benchmark_manifest(path: str | Path) -> list[BenchmarkSpec]:
@@ -242,7 +246,9 @@ def evaluate_benchmark(
         raise RuntimeError(f"benchmark {spec.name} has no runnable cases")
 
     correct = 0
+    format_correct = 0
     case_correct: list[int] = []
+    case_format_correct: list[int] = []
     total_resp_tokens = 0
     total_wall = 0.0
     total_attempts = 0
@@ -255,6 +261,7 @@ def evaluate_benchmark(
         attempts_left = max(1, num_samples)
         retries_left = max(0, verifier_retries)
         best_score = -1.0
+        best_format = 0.0
 
         while True:
             for _ in range(attempts_left):
@@ -277,7 +284,9 @@ def evaluate_benchmark(
                 resp_ids = out_ids[0, input_ids.size(1):].tolist()
                 total_resp_tokens += len(resp_ids)
                 response = tokenizer.decode(resp_ids, skip_special_tokens=True).strip()
+                fmt, _ = format_score(response)
                 score = score_response(case.task, response, case.reference)
+                best_format = max(best_format, fmt)
                 best_score = max(best_score, score)
                 if score >= 1.0:
                     break
@@ -288,8 +297,11 @@ def evaluate_benchmark(
             attempts_left = 1
 
         is_correct = int(best_score > 0.0)
+        is_format_correct = int(best_format > 0.0)
         correct += is_correct
+        format_correct += is_format_correct
         case_correct.append(is_correct)
+        case_format_correct.append(is_format_correct)
 
     total = len(cases)
     return BenchmarkResult(
@@ -303,4 +315,7 @@ def evaluate_benchmark(
         tokens_per_sec=total_resp_tokens / max(1e-9, total_wall),
         attempts_per_case=total_attempts / max(1, total),
         case_correct=case_correct,
+        format_correct=format_correct,
+        format_rate=format_correct / max(1, total),
+        case_format_correct=case_format_correct,
     )

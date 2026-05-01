@@ -73,6 +73,8 @@ class _FakeTokenizer:
         del skip_special_tokens
         if ids == [7]:
             return "A"
+        if ids == [9]:
+            return "<think>short rationale</think><answer>A</answer>"
         return " ".join(str(i) for i in ids)
 
 
@@ -153,6 +155,8 @@ def test_anytime_sweep_runs_benchmark_manifest(tmp_path: Path, monkeypatch) -> N
     assert all("marginal_gain" in e for e in bench_events)
     assert all("self_correction_rate" in e for e in bench_events)
     assert all("overthinking_rate" in e for e in bench_events)
+    assert all("format_success_rate" in e for e in bench_events)
+    assert all("verifier_success_rate" in e for e in bench_events)
 
 
 def test_anytime_sweep_reports_self_correction_metrics(tmp_path: Path, monkeypatch) -> None:
@@ -298,3 +302,79 @@ def test_evaluate_benchmark_retries_until_verifier_passes(monkeypatch) -> None:
     assert result.correct == 1
     assert result.total == 1
     assert abs(result.attempts_per_case - 2.0) < 1e-6
+
+
+def test_evaluate_benchmark_reports_format_and_verifier_separately(monkeypatch) -> None:
+    cfg = TrainConfig(
+        model=ModelConfig(
+            vocab_size=128,
+            d_model=32,
+            n_unique_layers=2,
+            n_heads=2,
+            head_dim=16,
+            d_ff=64,
+            max_seq_len=32,
+            tie_word_embeddings=True,
+            grad_checkpoint=False,
+            L_min=1,
+            L_max=2,
+        ),
+        data=DataConfig(tokenizer_path="unused"),
+    )
+    model = ELTLanguageModel(cfg.model)
+    tok = _FakeTokenizer()
+    spec = BenchmarkSpec(
+        name="mcq_format",
+        kind="jsonl",
+        task="mcq_reasoning",
+        path=None,
+        prompt_field="prompt",
+        reference_field="reference",
+    )
+
+    def _fake_cases(_spec):
+        return [type("Case", (), {
+            "prompt": "Choose one",
+            "reference": "A",
+            "task": "mcq_reasoning",
+            "benchmark": "mcq_format",
+        })()]
+
+    def _fake_generate_unformatted(self, input_ids, **_kwargs):
+        resp = torch.tensor([[7]], dtype=input_ids.dtype, device=input_ids.device)
+        return torch.cat([input_ids, resp], dim=-1)
+
+    monkeypatch.setattr("elt_lm.eval.benchmarks.load_benchmark_cases", _fake_cases)
+    monkeypatch.setattr(ELTLanguageModel, "generate", _fake_generate_unformatted)
+    unformatted = evaluate_benchmark(
+        model=model,
+        tokenizer=tok,
+        spec=spec,
+        L=1,
+        device=torch.device("cpu"),
+        max_new_tokens=8,
+        temperature=0.0,
+        top_k=1,
+    )
+    assert unformatted.correct == 1
+    assert unformatted.format_correct == 0
+    assert unformatted.format_rate == 0.0
+
+    def _fake_generate_formatted(self, input_ids, **_kwargs):
+        resp = torch.tensor([[9]], dtype=input_ids.dtype, device=input_ids.device)
+        return torch.cat([input_ids, resp], dim=-1)
+
+    monkeypatch.setattr(ELTLanguageModel, "generate", _fake_generate_formatted)
+    formatted = evaluate_benchmark(
+        model=model,
+        tokenizer=tok,
+        spec=spec,
+        L=1,
+        device=torch.device("cpu"),
+        max_new_tokens=8,
+        temperature=0.0,
+        top_k=1,
+    )
+    assert formatted.correct == 1
+    assert formatted.format_correct == 1
+    assert formatted.format_rate == 1.0

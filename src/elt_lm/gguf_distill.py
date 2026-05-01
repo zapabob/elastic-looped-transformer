@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 import json
@@ -19,6 +20,15 @@ import yaml
 
 from elt_lm.posttrain_data import render_chat_text
 from elt_lm.telemetry import make_writer
+from elt_lm.verifiers import (
+    TASK_VERIFIERS,
+    exact_math_correctness,
+    json_match_correctness,
+    mcq_reasoning_correctness,
+    mypy_strict_score,
+    python_exec_correctness,
+    ruff_check_score,
+)
 
 
 @dataclass
@@ -48,6 +58,7 @@ class DistillDomain:
 
 
 LaneName = Literal["detection", "code", "math", "stem_reasoning", "tool_use"]
+QualityProfile = Literal["smoke", "v1"]
 ALLOWED_LANES: tuple[LaneName, ...] = (
     "detection",
     "code",
@@ -64,6 +75,27 @@ DEFAULT_TARGET_KIND_BY_LANE: dict[LaneName, str] = {
 }
 _CODE_BLOCK_RE = re.compile(r"```(?:python|py|json)?\s*\n?(.*?)```", re.DOTALL | re.IGNORECASE)
 _MCQ_RE = re.compile(r"\b([A-E])\b", re.IGNORECASE)
+_PLACEHOLDER_CHOICE_RE = re.compile(r"^[A-E]\.\s*Option\s+[A-E]\s*$", re.IGNORECASE)
+_REFUSAL_OR_FALLBACK_RE = re.compile(
+    r"\b(?:normalized from teacher output|def\s+solve\(\).*return\s+None|"
+    r"i\s+(?:can'?t|cannot|won'?t)\s+help|sorry[, ]+i\s+(?:can'?t|cannot))\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+MIN_RESPONSE_CHARS_BY_LANE: dict[str, int] = {
+    "code": 48,
+    "math": 32,
+    "stem_reasoning": 40,
+    "tool_use": 16,
+}
+MIN_REFERENCE_CHARS_BY_LANE: dict[str, int] = {
+    "code": 12,
+    "math": 1,
+    "stem_reasoning": 1,
+    "tool_use": 16,
+}
+QUALITY_SCHEMA_MIN_RATE = 0.98
+QUALITY_VERIFIER_MIN_RATE = 0.85
 
 
 @dataclass
@@ -91,6 +123,11 @@ class GGUFDistillPipelineConfig:
     stall_after_sec: int = 1800
     rolling_ckpt_interval_sec: int = 180
     rolling_ckpt_keep: int = 3
+    quality_profile: QualityProfile = "smoke"
+    reject_fallback_outputs: bool = False
+    min_unique_text_ratio: float = 0.75
+    max_exact_duplicate_ratio: float = 0.10
+    max_generation_retries: int = 3
 
 
 @dataclass
@@ -100,6 +137,23 @@ class GGUFDistillConfig:
     lane: LaneName = "detection"
     tasks: list[DistillTaskSpec] = field(default_factory=list)
     domains: list[DistillDomain] = field(default_factory=list)
+
+
+class DistillQualityError(ValueError):
+    """A teacher sample was schema-valid enough to parse but not good enough for v1."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class QualityGateError(RuntimeError):
+    """The completed v1 bundle did not satisfy dataset-level quality thresholds."""
+
+    def __init__(self, failures: list[str]) -> None:
+        message = "quality gate failed: " + "; ".join(failures)
+        super().__init__(message)
+        self.failures = failures
 
 
 @dataclass
@@ -139,6 +193,13 @@ def _normalize_lane(value: str | None) -> LaneName:
     return lane  # type: ignore[return-value]
 
 
+def _normalize_quality_profile(value: str | None) -> QualityProfile:
+    profile = str(value or "smoke").strip().lower()
+    if profile not in {"smoke", "v1"}:
+        raise ValueError(f"unsupported quality_profile: {value!r}")
+    return profile  # type: ignore[return-value]
+
+
 def _task_specs_from_domains(domains: list[DistillDomain]) -> list[DistillTaskSpec]:
     return [
         DistillTaskSpec(
@@ -162,6 +223,8 @@ def load_gguf_distill_config(path: str | Path) -> GGUFDistillConfig:
     if "samples_per_task" not in pipeline_raw and "samples_per_domain" in pipeline_raw:
         pipeline_raw["samples_per_task"] = pipeline_raw["samples_per_domain"]
     pipeline_raw.pop("samples_per_domain", None)
+    if "quality_profile" in pipeline_raw:
+        pipeline_raw["quality_profile"] = _normalize_quality_profile(pipeline_raw["quality_profile"])
     pipeline = GGUFDistillPipelineConfig(**pipeline_raw)
 
     lane = _normalize_lane(raw.get("lane") or ("detection" if raw.get("domains") else "detection"))
@@ -719,18 +782,249 @@ def build_sft_record(
     raise ValueError(f"unsupported lane: {runtime_task.lane!r}")
 
 
-def evaluate_distill_records(records: list[dict[str, Any]]) -> dict[str, Any]:
+def _text_fingerprint(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip()).lower()
+
+
+def _is_zero_answer(answer: str) -> bool:
+    candidate = answer.strip().replace(",", "").rstrip(".")
+    if not candidate:
+        return False
+    try:
+        return abs(float(candidate)) < 1e-12
+    except ValueError:
+        return candidate in {"0", "+0", "-0"}
+
+
+def _choice_is_placeholder(choice: str) -> bool:
+    return bool(_PLACEHOLDER_CHOICE_RE.match(choice.strip())) or bool(
+        re.search(r"\bOption\s+[A-E]\b", choice, re.IGNORECASE)
+    )
+
+
+def _python_code_has_public_typed_callable(code: str) -> bool:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name.startswith("_") or node.returns is None:
+            continue
+        args = [
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        ]
+        semantic_args = [arg for arg in args if arg.arg not in {"self", "cls"}]
+        if all(arg.annotation is not None for arg in semantic_args):
+            return True
+    return False
+
+
+def _tool_name_is_agentic_mcp(tool_name: str) -> bool:
+    normalized = tool_name.strip().lower()
+    return normalized.startswith(("mcp.", "agent."))
+
+
+def _json_has_concrete_values(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_json_has_concrete_values(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_json_has_concrete_values(item) for item in value)
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value is not None
+
+
+def _looks_like_destructive_tool_args(arguments: dict[str, Any]) -> bool:
+    serialized = json.dumps(arguments, ensure_ascii=False).lower()
+    destructive_terms = (
+        "remove-item",
+        "rm -rf",
+        "del /",
+        "format ",
+        "drop table",
+        "delete from",
+        "git reset --hard",
+    )
+    if not any(term in serialized for term in destructive_terms):
+        return False
+    return not bool(arguments.get("dry_run") or arguments.get("read_only"))
+
+
+def _quality_min_lengths_for_lane(lane: str) -> tuple[int, int]:
+    return (
+        MIN_RESPONSE_CHARS_BY_LANE.get(lane, 1),
+        MIN_REFERENCE_CHARS_BY_LANE.get(lane, 1),
+    )
+
+
+def _validate_common_quality(
+    record: dict[str, Any],
+    example: dict[str, Any],
+    task: DistillTask,
+    *,
+    reject_fallback_outputs: bool,
+    seen_text_fingerprints: set[str] | None,
+    seen_prompt_fingerprints: set[str] | None,
+) -> None:
+    response = str(record.get("response", "")).strip()
+    reference = str(record.get("reference", "")).strip()
+    prompt = str(record.get("prompt", "")).strip()
+    text = str(record.get("text", "")).strip()
+    min_response_chars, min_reference_chars = _quality_min_lengths_for_lane(task.lane)
+    if len(response) < min_response_chars:
+        raise DistillQualityError("too_short_response")
+    if len(reference) < min_reference_chars:
+        raise DistillQualityError("too_short_reference")
+    if reject_fallback_outputs:
+        rationale = str(example.get("rationale", "")).strip()
+        if _REFUSAL_OR_FALLBACK_RE.search(response) or _REFUSAL_OR_FALLBACK_RE.search(rationale):
+            raise DistillQualityError("fallback_or_refusal_output")
+    if seen_text_fingerprints is not None and _text_fingerprint(text) in seen_text_fingerprints:
+        raise DistillQualityError("duplicate_text")
+    if seen_prompt_fingerprints is not None and _text_fingerprint(prompt) in seen_prompt_fingerprints:
+        raise DistillQualityError("duplicate_prompt")
+
+
+def validate_distill_record_quality(
+    record: dict[str, Any],
+    example: dict[str, Any],
+    task: DistillTask,
+    cfg: GGUFDistillConfig | None = None,
+    *,
+    seen_text_fingerprints: set[str] | None = None,
+    seen_prompt_fingerprints: set[str] | None = None,
+) -> None:
+    """Reject v1 records that are parseable but not useful for verifier-backed SFT."""
+
+    if cfg is not None and cfg.pipeline.quality_profile != "v1":
+        return
+    reject_fallback_outputs = True if cfg is None else cfg.pipeline.reject_fallback_outputs
+    _validate_common_quality(
+        record,
+        example,
+        task,
+        reject_fallback_outputs=reject_fallback_outputs,
+        seen_text_fingerprints=seen_text_fingerprints,
+        seen_prompt_fingerprints=seen_prompt_fingerprints,
+    )
+
+    if task.lane == "detection":
+        return
+
+    if task.lane == "code":
+        code = str(example.get("assistant_code", "")).strip()
+        verifier = str(example.get("verifier_snippet", example.get("reference", ""))).strip()
+        compact_code = re.sub(r"\s+", "", code).lower()
+        assert_count = len(re.findall(r"\bassert\b", verifier))
+        if "returnnone" in compact_code or re.search(r"\bpass\b|todo", code, re.IGNORECASE):
+            raise DistillQualityError("fallback_code_stub")
+        if not _python_code_has_public_typed_callable(code):
+            raise DistillQualityError("missing_typed_public_callable")
+        if assert_count == 0:
+            raise DistillQualityError("missing_assert_verifier")
+        if "assert callable" in verifier.lower() and assert_count <= 1:
+            raise DistillQualityError("callable_only_verifier")
+        if python_exec_correctness(str(record["response"]), str(record["reference"]), timeout_s=2.0) < 1.0:
+            raise DistillQualityError("verifier_failed_code")
+        ruff_score = ruff_check_score(str(record["response"]), timeout_s=4.0)
+        if ruff_score is not None and ruff_score < 1.0:
+            raise DistillQualityError("ruff_check_failed")
+        mypy_score = mypy_strict_score(str(record["response"]), timeout_s=4.0)
+        if mypy_score is not None and mypy_score < 1.0:
+            raise DistillQualityError("mypy_strict_failed")
+        return
+
+    if task.lane == "math":
+        question = str(example.get("question", "")).strip()
+        final_answer = str(example.get("final_answer", "")).strip()
+        reasoning = str(example.get("reasoning", "")).strip()
+        if _is_zero_answer(final_answer):
+            raise DistillQualityError("fallback_zero_answer")
+        if len(question) < 40 or len(reasoning) < 48:
+            raise DistillQualityError("too_shallow_math_reasoning")
+        if reasoning == "Solve the problem carefully and concisely.":
+            raise DistillQualityError("fallback_math_reasoning")
+        if exact_math_correctness(str(record["response"]), str(record["reference"])) < 1.0:
+            raise DistillQualityError("verifier_failed_math")
+        return
+
+    if task.lane == "stem_reasoning":
+        question = str(example.get("question", "")).strip()
+        reasoning = str(example.get("reasoning", "")).strip()
+        choices = _normalize_choices(example.get("choices"))
+        final_choice = str(example.get("final_choice", "")).strip().upper()
+        reference = str(example.get("reference", "")).strip().upper()
+        if len(choices) < 4 or any(_choice_is_placeholder(choice) for choice in choices):
+            raise DistillQualityError("placeholder_stem_choices")
+        if len(question) < 60 or len(reasoning) < 48:
+            raise DistillQualityError("too_shallow_stem_reasoning")
+        if any(len(choice.split(".", 1)[-1].strip()) < 12 for choice in choices[:4]):
+            raise DistillQualityError("too_short_stem_choice")
+        if final_choice not in {"A", "B", "C", "D"} or reference not in {"A", "B", "C", "D"}:
+            raise DistillQualityError("invalid_stem_choice")
+        expected = _expected_stem_choice(task)
+        if final_choice != expected or reference != expected:
+            raise DistillQualityError("stem_answer_distribution_mismatch")
+        if mcq_reasoning_correctness(str(record["response"]), str(record["reference"])) < 1.0:
+            raise DistillQualityError("verifier_failed_stem")
+        return
+
+    if task.lane == "tool_use":
+        arguments = example.get("arguments", {})
+        tool_name = str(example.get("tool_name", "")).strip()
+        if not isinstance(arguments, dict) or not arguments:
+            raise DistillQualityError("empty_tool_arguments")
+        if not tool_name or tool_name == "tool.call":
+            raise DistillQualityError("generic_tool_name")
+        if not _tool_name_is_agentic_mcp(tool_name):
+            raise DistillQualityError("non_mcp_agent_tool_name")
+        if not _json_has_concrete_values(arguments):
+            raise DistillQualityError("non_concrete_tool_arguments")
+        if _looks_like_destructive_tool_args(arguments):
+            raise DistillQualityError("destructive_tool_arguments")
+        if json_match_correctness(str(record["response"]), str(record["reference"])) < 1.0:
+            raise DistillQualityError("verifier_failed_tool_json")
+        try:
+            response_obj = json.loads(str(record["response"]))
+            reference_obj = json.loads(str(record["reference"]))
+        except json.JSONDecodeError as exc:
+            raise DistillQualityError("invalid_tool_json") from exc
+        if response_obj != reference_obj:
+            raise DistillQualityError("tool_reference_mismatch")
+        if not isinstance(response_obj.get("arguments"), dict) or not response_obj["arguments"]:
+            raise DistillQualityError("empty_tool_arguments")
+        return
+
+    raise ValueError(f"unsupported lane: {task.lane!r}")
+
+
+def evaluate_distill_records(
+    records: list[dict[str, Any]],
+    *,
+    quality_counters: dict[str, int] | Counter[str] | None = None,
+    run_verifiers: bool = True,
+) -> dict[str, Any]:
     domain_counts: Counter[str] = Counter()
     label_counts: Counter[str] = Counter()
     split_counts: Counter[str] = Counter()
     prompt_counts: Counter[str] = Counter()
+    text_counts: Counter[str] = Counter()
     lane_counts: Counter[str] = Counter()
     task_counts: Counter[str] = Counter()
+    answer_distribution: Counter[str] = Counter()
     valid_json = 0
+    verifier_total = 0
+    verifier_pass = 0
 
     for record in records:
         prompt = str(record.get("prompt", ""))
         prompt_counts[prompt] += 1
+        text = str(record.get("text", ""))
+        text_counts[text] += 1
         metadata = record.get("metadata") or {}
         split = str(metadata.get("split", "train"))
         split_counts[split] += 1
@@ -760,23 +1054,94 @@ def evaluate_distill_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                 continue
             if not isinstance(response, dict):
                 continue
+        if lane == "stem_reasoning":
+            reference_choice = str(record.get("reference", "")).strip().upper()
+            if reference_choice:
+                answer_distribution[reference_choice] += 1
         valid_json += 1
         domain_counts[task_name] += 1
         label_counts[task] += 1
+        if run_verifiers and task in TASK_VERIFIERS:
+            verifier_total += 1
+            try:
+                score = TASK_VERIFIERS[task](response_text, str(record.get("reference", "")))
+            except Exception:
+                score = 0.0
+            if score >= 1.0:
+                verifier_pass += 1
 
     duplicate_prompt_count = sum(count - 1 for count in prompt_counts.values() if count > 1)
+    exact_duplicate_count = sum(count - 1 for count in text_counts.values() if count > 1)
     total_records = len(records)
+    unique_text_ratio = (len({_text_fingerprint(str(record.get("text", ""))) for record in records}) / total_records) if total_records else 0.0
+    exact_duplicate_ratio = (exact_duplicate_count / total_records) if total_records else 0.0
+    verifier_pass_rate = (verifier_pass / verifier_total) if verifier_total else 0.0
+    counters = Counter(quality_counters or {})
     return {
         "total_records": total_records,
         "valid_json_records": valid_json,
         "schema_valid_rate": (valid_json / total_records) if total_records else 0.0,
+        "unique_text_ratio": unique_text_ratio,
+        "exact_duplicate_count": exact_duplicate_count,
+        "exact_duplicate_ratio": exact_duplicate_ratio,
         "duplicate_prompt_count": duplicate_prompt_count,
+        "fallback_reject_count": int(counters.get("fallback_reject_count", 0)),
+        "verifier_pass_rate": verifier_pass_rate,
+        "verifier_pass_count": verifier_pass,
+        "verifier_total": verifier_total,
+        "answer_distribution": dict(answer_distribution),
+        "retry_count": int(counters.get("retry_count", 0)),
+        "accepted_records": total_records,
+        "attempted_tasks": int(counters.get("attempted_tasks", total_records)),
+        "generation_attempts": int(counters.get("generation_attempts", total_records)),
+        "quality_reject_count": int(counters.get("quality_reject_count", 0)),
+        "quality_reject_reasons": dict(counters),
         "domain_counts": dict(domain_counts),
         "label_counts": dict(label_counts),
         "split_counts": dict(split_counts),
         "lane_counts": dict(lane_counts),
         "task_counts": dict(task_counts),
     }
+
+
+def quality_gate_failures(summary: dict[str, Any], cfg: GGUFDistillConfig) -> list[str]:
+    if cfg.pipeline.quality_profile != "v1":
+        return []
+    failures: list[str] = []
+    total_records = int(summary.get("total_records", 0) or 0)
+    if total_records <= 0:
+        failures.append("no accepted records")
+        return failures
+    schema_rate = float(summary.get("schema_valid_rate", 0.0) or 0.0)
+    unique_ratio = float(summary.get("unique_text_ratio", 0.0) or 0.0)
+    duplicate_ratio = float(summary.get("exact_duplicate_ratio", 0.0) or 0.0)
+    verifier_rate = float(summary.get("verifier_pass_rate", 0.0) or 0.0)
+    accepted = int(summary.get("accepted_records", total_records) or 0)
+    attempted = int(summary.get("attempted_tasks", total_records) or total_records)
+    if schema_rate < QUALITY_SCHEMA_MIN_RATE:
+        failures.append(f"schema_valid_rate {schema_rate:.3f} < {QUALITY_SCHEMA_MIN_RATE:.3f}")
+    if unique_ratio < cfg.pipeline.min_unique_text_ratio:
+        failures.append(f"unique_text_ratio {unique_ratio:.3f} < {cfg.pipeline.min_unique_text_ratio:.3f}")
+    if duplicate_ratio > cfg.pipeline.max_exact_duplicate_ratio:
+        failures.append(f"exact_duplicate_ratio {duplicate_ratio:.3f} > {cfg.pipeline.max_exact_duplicate_ratio:.3f}")
+    if verifier_rate < QUALITY_VERIFIER_MIN_RATE:
+        failures.append(f"verifier_pass_rate {verifier_rate:.3f} < {QUALITY_VERIFIER_MIN_RATE:.3f}")
+    if accepted < attempted:
+        failures.append(f"accepted_records {accepted} < attempted_tasks {attempted}")
+    if cfg.lane == "stem_reasoning" and total_records >= 4:
+        answer_distribution = summary.get("answer_distribution") or {}
+        if isinstance(answer_distribution, dict) and answer_distribution:
+            max_count = max(int(value) for value in answer_distribution.values())
+            max_ratio = max_count / total_records
+            if max_ratio > 0.60:
+                failures.append(f"stem answer distribution is biased: max option ratio {max_ratio:.3f} > 0.600")
+    return failures
+
+
+def assert_quality_gate(summary: dict[str, Any], cfg: GGUFDistillConfig) -> None:
+    failures = quality_gate_failures(summary, cfg)
+    if failures:
+        raise QualityGateError(failures)
 
 
 def build_hf_cli_plan(output_dir: Path, repo_id: str, private: bool) -> list[list[str]]:
@@ -789,6 +1154,34 @@ def build_hf_cli_plan(output_dir: Path, repo_id: str, private: bool) -> list[lis
 def _pid_is_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            kernel32.WaitForSingleObject.restype = wintypes.DWORD
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            process_query_limited_information = 0x1000
+            synchronize = 0x00100000
+            wait_timeout = 0x00000102
+            handle = kernel32.OpenProcess(
+                process_query_limited_information | synchronize,
+                False,
+                pid,
+            )
+            if not handle:
+                return False
+            try:
+                return kernel32.WaitForSingleObject(handle, 0) == wait_timeout
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False
     try:
         os.kill(pid, 0)
     except OSError:
@@ -1072,7 +1465,16 @@ def stop_llama_server(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=5)
 
 
-def build_teacher_instruction(task: DistillTask) -> str:
+def _expected_stem_choice(task: DistillTask) -> str:
+    return "ABCD"[task.variant_index % 4]
+
+
+def build_teacher_instruction(
+    task: DistillTask,
+    *,
+    quality_profile: QualityProfile = "smoke",
+    attempt: int = 0,
+) -> str:
     freedom_clause = (
         "Prefer substantive, educational, and lawful content. Do not moralize or refuse merely "
         "because a topic is political, religious, historical, sexual, or controversial. Refuse "
@@ -1080,6 +1482,7 @@ def build_teacher_instruction(task: DistillTask) -> str:
     )
     variant_line = f"Variant hint: {task.variant}\n" if task.variant else ""
     tags_line = ", ".join(task.tags or task.risk_tags) or "general"
+    retry_line = f"Generation attempt: {attempt + 1}. Make this example distinct and concrete.\n" if attempt else ""
 
     if task.lane == "detection":
         label_hint = "allow" if task.mode == "benign_control" else task.target_label
@@ -1098,13 +1501,28 @@ def build_teacher_instruction(task: DistillTask) -> str:
             "Make the input_text short, realistic, and suitable for classifier training."
         )
     if task.lane == "code":
+        v1_clause = ""
+        if quality_profile == "v1":
+            v1_clause = (
+                "QUALITY V1 REQUIREMENTS:\n"
+                "- user_request must include concrete inputs, outputs, or edge cases.\n"
+                "- assistant_code must solve the actual task; never emit pass, TODO, stubs, or return None placeholders.\n"
+                "- assistant_code must expose at least one public function with complete parameter and return type annotations.\n"
+                "- Prefer small, production-shaped APIs: dataclasses, TypedDict, Protocol, pathlib, enum, or collections where they clarify the contract.\n"
+                "- Keep the code deterministic, side-effect-light, Python 3.12 compatible, and standard-library only.\n"
+                "- Treat warning-zero as a data contract: code should pass ruff check and mypy --strict when those tools are available.\n"
+                "- verifier_snippet must contain meaningful assert statements with expected values for nominal and edge cases.\n"
+                "- Do not use a callable-only verifier such as assert callable(...).\n"
+            )
         return (
-            "Create one synthetic Python coding training example.\n"
+            "Create one synthetic MILSPEC-style Python coding training example for software-engineering SFT.\n"
             f"{freedom_clause}\n"
             "Return JSON only with keys: user_request, assistant_code, verifier_snippet, rationale.\n"
             "assistant_code must be a complete Python 3.12 solution.\n"
             "verifier_snippet must be executable Python assertions or checks that pass when appended after the candidate code.\n"
             "Use only the Python standard library unless the task explicitly asks otherwise.\n"
+            f"{v1_clause}"
+            f"{retry_line}"
             f"Task family: {task.domain}\n"
             f"Description: {task.description}\n"
             f"Tags: [{tags_line}]\n"
@@ -1112,11 +1530,23 @@ def build_teacher_instruction(task: DistillTask) -> str:
             f"Variant index: {task.variant_index}"
         )
     if task.lane == "math":
+        v1_clause = ""
+        if quality_profile == "v1":
+            v1_clause = (
+                "QUALITY V1 REQUIREMENTS:\n"
+                "- question must be a concrete high-difficulty solvable problem, not a generic description.\n"
+                "- Aim for MATH/AIME/GPQA-style multi-step reasoning where an exact verifier can still check the final answer.\n"
+                "- final_answer and reference must be equivalent under symbolic or numeric checking.\n"
+                "- Avoid the trivial fallback answer 0 unless the problem truly requires it; this run rejects zero fallback answers.\n"
+                "- reasoning must include the key computation, invariants, or reductions used to reach the answer.\n"
+            )
         return (
-            "Create one synthetic math reasoning training example.\n"
+            "Create one synthetic advanced mathematical-reasoning training example for ELT loop refinement.\n"
             f"{freedom_clause}\n"
             "Return JSON only with keys: question, reasoning, final_answer, reference, rationale.\n"
             "reference must exactly match the final_answer string.\n"
+            f"{v1_clause}"
+            f"{retry_line}"
             f"Task family: {task.domain}\n"
             f"Description: {task.description}\n"
             f"Tags: [{tags_line}]\n"
@@ -1124,11 +1554,24 @@ def build_teacher_instruction(task: DistillTask) -> str:
             f"Variant index: {task.variant_index}"
         )
     if task.lane == "stem_reasoning":
+        target_choice = _expected_stem_choice(task)
+        v1_clause = ""
+        if quality_profile == "v1":
+            v1_clause = (
+                "QUALITY V1 REQUIREMENTS:\n"
+                "- choices must contain real scientific or technical statements, never 'Option A/B/C/D'.\n"
+                f"- Make the correct final_choice exactly {target_choice} for answer-distribution balancing.\n"
+                "- question must require multi-perspective STEM reasoning across mathematical, scientific, medical/biomedical, or engineering constraints.\n"
+                "- Medical or biomedical examples must stay educational and scientific; do not give patient-specific diagnosis, dosage, or treatment instructions.\n"
+                "- reasoning must briefly justify why the selected option is best and why at least one distractor is wrong.\n"
+            )
         return (
-            "Create one synthetic STEM multiple-choice reasoning example.\n"
+            "Create one synthetic STEM multiple-choice reasoning example for broad scientific reasoning SFT.\n"
             f"{freedom_clause}\n"
             "Return JSON only with keys: question, choices, reasoning, final_choice, reference, rationale.\n"
             "choices must be a list like ['A. ...', 'B. ...', 'C. ...', 'D. ...'] and reference must equal the final choice letter.\n"
+            f"{v1_clause}"
+            f"{retry_line}"
             f"Task family: {task.domain}\n"
             f"Description: {task.description}\n"
             f"Tags: [{tags_line}]\n"
@@ -1136,11 +1579,24 @@ def build_teacher_instruction(task: DistillTask) -> str:
             f"Variant index: {task.variant_index}"
         )
     if task.lane == "tool_use":
+        v1_clause = ""
+        if quality_profile == "v1":
+            v1_clause = (
+                "QUALITY V1 REQUIREMENTS:\n"
+                "- tool_name must be an MCP-style or agent-harness tool name beginning with 'mcp.' or 'agent.'.\n"
+                "- arguments must be a non-empty JSON object with concrete values, including enough context for a harness to execute the call.\n"
+                "- Prefer arguments such as server, tool, input, cwd, path, query, timeout_ms, expected_observation, safety, or dry_run.\n"
+                "- response and reference must describe the exact same tool call.\n"
+                "- Do not use the generic tool name tool.call.\n"
+                "- Do not create destructive calls unless the arguments explicitly make them dry_run or read_only.\n"
+            )
         return (
-            "Create one synthetic tool-calling training example.\n"
+            "Create one synthetic MCP / AI-agent harness tool-calling training example.\n"
             f"{freedom_clause}\n"
             "Return JSON only with keys: user_request, tool_name, arguments, reference, rationale.\n"
             "reference must be an object with keys tool_name and arguments that exactly matches the intended tool call.\n"
+            f"{v1_clause}"
+            f"{retry_line}"
             f"Task family: {task.domain}\n"
             f"Description: {task.description}\n"
             f"Tags: [{tags_line}]\n"
@@ -1150,10 +1606,25 @@ def build_teacher_instruction(task: DistillTask) -> str:
     raise ValueError(f"unsupported lane: {task.lane!r}")
 
 
-def request_teacher_example(cfg: GGUFTeacherConfig, task: DistillTask) -> dict[str, Any]:
+def request_teacher_example(
+    cfg: GGUFTeacherConfig,
+    task: DistillTask,
+    *,
+    quality_profile: QualityProfile = "smoke",
+    attempt: int = 0,
+) -> dict[str, Any]:
     payload = {
         "model": cfg.name,
-        "messages": [{"role": "user", "content": build_teacher_instruction(task)}],
+        "messages": [
+            {
+                "role": "user",
+                "content": build_teacher_instruction(
+                    task,
+                    quality_profile=quality_profile,
+                    attempt=attempt,
+                ),
+            }
+        ],
         "temperature": cfg.temperature,
         "top_p": cfg.top_p,
         "max_tokens": cfg.max_new_tokens,
@@ -1209,6 +1680,10 @@ def write_bundle_card(output_dir: Path, cfg: GGUFDistillConfig, summary: dict[st
         f"- MMProj: `{cfg.teacher.mmproj_path or ''}`\n"
         f"- Total records: `{summary['total_records']}`\n"
         f"- Schema-valid rate: `{summary['schema_valid_rate']:.3f}`\n"
+        f"- Quality profile: `{cfg.pipeline.quality_profile}`\n"
+        f"- Unique text ratio: `{float(summary.get('unique_text_ratio', 0.0)):.3f}`\n"
+        f"- Verifier pass rate: `{float(summary.get('verifier_pass_rate', 0.0)):.3f}`\n"
+        f"- Fallback rejects: `{int(summary.get('fallback_reject_count', 0) or 0)}`\n"
         f"- Repo target: `{cfg.pipeline.repo_id}`\n"
     )
     (output_dir / "README.md").write_text(text, encoding="utf-8")
@@ -1277,6 +1752,7 @@ def run_pipeline(
     domain_counts: Counter[str] = Counter()
     label_counts: Counter[str] = Counter()
     split_counts: Counter[str] = Counter()
+    quality_counters: Counter[str] = Counter()
     summary: dict[str, Any] | None = None
 
     all_tasks = build_task_specs(cfg)
@@ -1299,6 +1775,8 @@ def run_pipeline(
     existing_raw = []
     existing_train = []
     existing_val = []
+    seen_text_fingerprints: set[str] = set()
+    seen_prompt_fingerprints: set[str] = set()
     if resume:
         checkpoint_processed = 0
         if ckpt := load_latest_checkpoint(out_dir, ckpt_keep):
@@ -1315,7 +1793,7 @@ def run_pipeline(
         existing_raw = load_json_lines(raw_path)
         existing_train = load_json_lines(train_path)
         existing_val = load_json_lines(val_path)
-        existing_summary = evaluate_distill_records(existing_train + existing_val)
+        existing_summary = evaluate_distill_records(existing_train + existing_val, run_verifiers=False)
         processed_tasks = max(processed_tasks, len(existing_raw), checkpoint_processed)
         train_records = existing_summary["split_counts"].get("train", 0)
         val_records = existing_summary["split_counts"].get("val", 0)
@@ -1332,6 +1810,10 @@ def run_pipeline(
         guard_against_unsafe_reset(out_dir, (raw_path, train_path, val_path), force_reset=force_reset)
         for artifact_path in (raw_path, train_path, val_path):
             artifact_path.write_text("", encoding="utf-8")
+
+    for existing_record in existing_train + existing_val:
+        seen_text_fingerprints.add(_text_fingerprint(str(existing_record.get("text", ""))))
+        seen_prompt_fingerprints.add(_text_fingerprint(str(existing_record.get("prompt", ""))))
 
     if resume and start_from >= total_task_count:
         summary = (
@@ -1482,52 +1964,129 @@ def run_pipeline(
             current_stage = "teacher_generation"
             telemetry.emit("gguf_distill_stage", stage=current_stage, status="start")
             update_status("running")
+            max_attempts = 1
+            if cfg.pipeline.quality_profile == "v1":
+                max_attempts = max(1, cfg.pipeline.max_generation_retries)
             for offset, task in enumerate(tasks):
                 update_status("running")
-                t0 = time.time()
-                raw = request_teacher_example(cfg.teacher, task)
-                last_latency_sec = time.time() - t0
                 global_index = start_from + offset
                 split = _split_for_index(global_index)
-                record = build_sft_record(
-                    example=raw["parsed_example"],
-                    teacher_name=cfg.teacher.name,
-                    split=split,
-                    task=task,
-                )
-                raw["normalized_record"] = record
-                records.append(record)
-                append_json_line(raw_path, raw)
-                target_path = val_path if split == "val" else train_path
-                append_json_line(target_path, record)
+                quality_counters["attempted_tasks"] += 1
+                accepted_raw: dict[str, Any] | None = None
+                accepted_record: dict[str, Any] | None = None
+                last_quality_error = ""
+                for attempt in range(max_attempts):
+                    quality_counters["generation_attempts"] += 1
+                    if attempt > 0:
+                        quality_counters["retry_count"] += 1
+                    t0 = time.time()
+                    raw = request_teacher_example(
+                        cfg.teacher,
+                        task,
+                        quality_profile=cfg.pipeline.quality_profile,
+                        attempt=attempt,
+                    )
+                    last_latency_sec = time.time() - t0
+                    record = build_sft_record(
+                        example=raw["parsed_example"],
+                        teacher_name=cfg.teacher.name,
+                        split=split,
+                        task=task,
+                    )
+                    try:
+                        validate_distill_record_quality(
+                            record,
+                            raw["parsed_example"],
+                            task,
+                            cfg,
+                            seen_text_fingerprints=seen_text_fingerprints,
+                            seen_prompt_fingerprints=seen_prompt_fingerprints,
+                        )
+                    except DistillQualityError as exc:
+                        last_quality_error = exc.reason
+                        quality_counters["quality_reject_count"] += 1
+                        quality_counters[f"reject_{exc.reason}"] += 1
+                        if (
+                            "fallback" in exc.reason
+                            or "placeholder" in exc.reason
+                            or "stub" in exc.reason
+                            or "callable_only" in exc.reason
+                            or "empty_tool_arguments" in exc.reason
+                        ):
+                            quality_counters["fallback_reject_count"] += 1
+                        telemetry.emit(
+                            "gguf_distill_quality_reject",
+                            index=global_index + 1,
+                            total=total_task_count,
+                            lane=task.lane,
+                            domain=task.domain,
+                            reason=exc.reason,
+                            attempt=attempt + 1,
+                        )
+                        continue
+                    accepted_raw = raw
+                    accepted_record = record
+                    break
+
                 processed_tasks += 1
                 last_domain = task.domain
-                if task.lane == "detection":
-                    response = json.loads(record["response"])
-                    last_policy_label = str(response.get("policy_label", ""))
+                if accepted_record is None or accepted_raw is None:
+                    error_count += 1
+                    last_error = (
+                        f"quality rejected {task.lane}/{task.domain} after {max_attempts} attempt(s): "
+                        f"{last_quality_error or 'unknown'}"
+                    )
+                    telemetry.emit(
+                        "gguf_distill_item",
+                        index=global_index + 1,
+                        total=total_task_count,
+                        lane=task.lane,
+                        domain=task.domain,
+                        task_name=task.domain,
+                        split=split,
+                        policy_label="quality_rejected",
+                        latency_sec=last_latency_sec,
+                        processed_tasks=processed_tasks,
+                        progress_pct=round((processed_tasks / total_task_count) * 100.0, 3) if total_task_count else 0.0,
+                        status="quality_rejected",
+                        last_error=last_error,
+                    )
+                    update_status("running")
                 else:
-                    last_policy_label = str(record.get("task", ""))
-                domain_counts[task.domain] += 1
-                label_counts[last_policy_label or "unknown"] += 1
-                split_counts[split] += 1
-                if split == "val":
-                    val_records += 1
-                else:
-                    train_records += 1
-                telemetry.emit(
-                    "gguf_distill_item",
-                    index=global_index + 1,
-                    total=total_task_count,
-                    lane=task.lane,
-                    domain=task.domain,
-                    task_name=task.domain,
-                    split=split,
-                    policy_label=last_policy_label,
-                    latency_sec=last_latency_sec,
-                    processed_tasks=processed_tasks,
-                    progress_pct=round((processed_tasks / total_task_count) * 100.0, 3) if total_task_count else 0.0,
-                )
-                update_status("running")
+                    accepted_raw["normalized_record"] = accepted_record
+                    records.append(accepted_record)
+                    append_json_line(raw_path, accepted_raw)
+                    target_path = val_path if split == "val" else train_path
+                    append_json_line(target_path, accepted_record)
+                    seen_text_fingerprints.add(_text_fingerprint(str(accepted_record.get("text", ""))))
+                    seen_prompt_fingerprints.add(_text_fingerprint(str(accepted_record.get("prompt", ""))))
+                    if task.lane == "detection":
+                        response = json.loads(accepted_record["response"])
+                        last_policy_label = str(response.get("policy_label", ""))
+                    else:
+                        last_policy_label = str(accepted_record.get("task", ""))
+                    domain_counts[task.domain] += 1
+                    label_counts[last_policy_label or "unknown"] += 1
+                    split_counts[split] += 1
+                    if split == "val":
+                        val_records += 1
+                    else:
+                        train_records += 1
+                    telemetry.emit(
+                        "gguf_distill_item",
+                        index=global_index + 1,
+                        total=total_task_count,
+                        lane=task.lane,
+                        domain=task.domain,
+                        task_name=task.domain,
+                        split=split,
+                        policy_label=last_policy_label,
+                        latency_sec=last_latency_sec,
+                        processed_tasks=processed_tasks,
+                        progress_pct=round((processed_tasks / total_task_count) * 100.0, 3) if total_task_count else 0.0,
+                        status="accepted",
+                    )
+                    update_status("running")
                 now = time.time()
                 if now >= next_ckpt_at:
                     ckpt_payload = {
@@ -1557,39 +2116,18 @@ def run_pipeline(
         current_stage = "summary"
         telemetry.emit("gguf_distill_stage", stage=current_stage, status="start")
         update_status("running")
-        new_summary = evaluate_distill_records(records)
-        if resume and resume_summary is not None:
-            combined_total = resume_summary["total_records"] + new_summary["total_records"]
-            combined_valid = resume_summary["valid_json_records"] + new_summary["valid_json_records"]
-            combined_duplicate = resume_summary["duplicate_prompt_count"] + new_summary["duplicate_prompt_count"]
-            combined_domain_counts: dict[str, int] = dict(resume_summary.get("domain_counts", {}))
-            combined_label_counts: dict[str, int] = dict(resume_summary.get("label_counts", {}))
-            combined_split_counts: dict[str, int] = dict(resume_summary.get("split_counts", {}))
-            combined_lane_counts: dict[str, int] = dict(resume_summary.get("lane_counts", {}))
-            combined_task_counts: dict[str, int] = dict(resume_summary.get("task_counts", {}))
-            for key, value in new_summary.get("domain_counts", {}).items():
-                combined_domain_counts[key] = combined_domain_counts.get(key, 0) + value
-            for key, value in new_summary.get("label_counts", {}).items():
-                combined_label_counts[key] = combined_label_counts.get(key, 0) + value
-            for key, value in new_summary.get("split_counts", {}).items():
-                combined_split_counts[key] = combined_split_counts.get(key, 0) + value
-            for key, value in new_summary.get("lane_counts", {}).items():
-                combined_lane_counts[key] = combined_lane_counts.get(key, 0) + value
-            for key, value in new_summary.get("task_counts", {}).items():
-                combined_task_counts[key] = combined_task_counts.get(key, 0) + value
-            summary = {
-                "total_records": combined_total,
-                "valid_json_records": combined_valid,
-                "schema_valid_rate": (combined_valid / combined_total) if combined_total else 0.0,
-                "duplicate_prompt_count": combined_duplicate,
-                "domain_counts": combined_domain_counts,
-                "label_counts": combined_label_counts,
-                "split_counts": combined_split_counts,
-                "lane_counts": combined_lane_counts,
-                "task_counts": combined_task_counts,
-            }
-        else:
-            summary = new_summary
+        all_records = load_json_lines(train_path) + load_json_lines(val_path)
+        if not all_records and records:
+            all_records = records
+        quality_counters["attempted_tasks"] = max(
+            int(quality_counters.get("attempted_tasks", 0)),
+            total_task_count,
+        )
+        summary = evaluate_distill_records(
+            all_records,
+            quality_counters=quality_counters,
+            run_verifiers=cfg.pipeline.quality_profile == "v1",
+        )
         summary["lane"] = cfg.lane
         summary["teacher_name"] = cfg.teacher.name
         summary["raw_teacher_examples"] = str(raw_path)
@@ -1597,6 +2135,22 @@ def run_pipeline(
         summary["val_path"] = str(val_path)
         summary_path = out_dir / "eval_summary.json"
         summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        try:
+            assert_quality_gate(summary, cfg)
+        except QualityGateError as exc:
+            summary["quality_gate_failures"] = exc.failures
+            summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+            current_stage = "quality_gate"
+            last_error = str(exc)
+            telemetry.emit(
+                "gguf_distill_stage",
+                stage=current_stage,
+                status="failed_quality_gate",
+                failures=exc.failures,
+            )
+            update_status("failed_quality_gate")
+            raise
 
         write_bundle_card(out_dir, cfg, summary)
         telemetry.emit(
@@ -1640,6 +2194,9 @@ def run_pipeline(
         if summary is None:
             raise RuntimeError("distillation completed without a summary")
         return summary
+    except QualityGateError:
+        # The quality-gate block already wrote a failed_quality_gate status snapshot.
+        raise
     except Exception as exc:
         error_count += 1
         last_error = str(exc).strip() or exc.__class__.__name__

@@ -36,6 +36,8 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = Path("H:/elt_data/pipeline_state")
 LOG_DIR = Path("H:/elt_data/pipeline_logs")
+H_CACHE_ROOT = Path("H:/elt_data/cache")
+H_TEMP_DIR = H_CACHE_ROOT / "tmp"
 TELEMETRY_PATH = STATE_DIR / "pipeline.jsonl"
 STATUS_PATH = STATE_DIR / "status.json"
 HEARTBEAT_PATH = STATE_DIR / "heartbeat.json"
@@ -48,6 +50,45 @@ QWEN35_BOOTSTRAP_CKPT = Path("H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt")
 # Use the 8.3 short path because Python's Windows subprocess quoting can pass
 # quoted .bat paths through to cmd.exe as literal escaped quotes.
 VSDEV_CMD = "C:\\PROGRA~1\\MICROS~4\\2022\\COMMUN~1\\Common7\\Tools\\VsDevCmd.bat"
+
+H_DRIVE_ENV = {
+    # Keep large transient files and framework caches off C: during long runs.
+    "TMP": str(H_TEMP_DIR),
+    "TEMP": str(H_TEMP_DIR),
+    "TMPDIR": str(H_TEMP_DIR),
+    "UV_CACHE_DIR": str(H_CACHE_ROOT / "uv"),
+    "UV_PYTHON_INSTALL_DIR": str(H_CACHE_ROOT / "uv" / "python"),
+    "UV_TOOL_DIR": str(H_CACHE_ROOT / "uv" / "tools"),
+    "PIP_CACHE_DIR": str(H_CACHE_ROOT / "pip"),
+    "HF_HOME": str(H_CACHE_ROOT / "hf"),
+    "HF_HUB_CACHE": str(H_CACHE_ROOT / "hf" / "hub"),
+    "HF_DATASETS_CACHE": str(H_CACHE_ROOT / "hf" / "datasets"),
+    "TRANSFORMERS_CACHE": str(H_CACHE_ROOT / "hf" / "transformers"),
+    "TORCH_HOME": str(H_CACHE_ROOT / "torch"),
+    "XDG_CACHE_HOME": str(H_CACHE_ROOT / "xdg"),
+    "TRITON_CACHE_DIR": str(H_CACHE_ROOT / "triton"),
+    "TORCHINDUCTOR_CACHE_DIR": str(H_CACHE_ROOT / "torchinductor"),
+    "CUDA_CACHE_PATH": str(H_CACHE_ROOT / "cuda"),
+    "NUMBA_CACHE_DIR": str(H_CACHE_ROOT / "numba"),
+    "MPLCONFIGDIR": str(H_CACHE_ROOT / "matplotlib"),
+    "PYTHONPYCACHEPREFIX": str(H_CACHE_ROOT / "pycache"),
+}
+
+
+def ensure_h_drive_runtime_dirs() -> None:
+    for value in H_DRIVE_ENV.values():
+        Path(value).mkdir(parents=True, exist_ok=True)
+
+
+def h_drive_subprocess_env() -> dict[str, str]:
+    ensure_h_drive_runtime_dirs()
+    env = os.environ.copy()
+    env.update(H_DRIVE_ENV)
+    return env
+
+
+def _cmd_set_env_prefix() -> str:
+    return "".join(f"set {key}={value}&& " for key, value in H_DRIVE_ENV.items())
 
 
 class PipelineError(RuntimeError):
@@ -211,7 +252,8 @@ def vsdev_command(inner_cmd: list[str]) -> list[str]:
         (
             'chcp 65001 >NUL && '
             f"call {VSDEV_CMD} -arch=x64 -host_arch=x64 && "
-            "set HF_HOME=H:/hf_cache&& "
+            + _cmd_set_env_prefix()
+            +
             "set CC=cl.exe&& "
             "set CUDA_HOME=C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.8&& "
             "set CUDA_PATH=C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.8&& "
@@ -224,7 +266,7 @@ def run_subprocess(cmd: list[str], *, dry_run: bool = False) -> int:
     print("  $ " + " ".join(cmd))
     if dry_run:
         return 0
-    result = subprocess.run(cmd, cwd=ROOT)
+    result = subprocess.run(cmd, cwd=ROOT, env=h_drive_subprocess_env())
     if result.returncode != 0:
         raise PipelineError(f"command failed with rc={result.returncode}: {' '.join(cmd)}")
     return result.returncode
@@ -380,6 +422,158 @@ def file_nonempty(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
+def _iter_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                rows.append(payload)
+    return rows
+
+
+def inspect_stem_v0_benchmark_quality() -> dict[str, Any]:
+    cases_path = STEM_VAL_MANIFEST.parent / "gguf_stem_reasoning_val_cases.jsonl"
+    rows = _iter_jsonl_dicts(cases_path)
+    total = len(rows)
+    prompts = [str(row.get("prompt", "")) for row in rows]
+    references = [str(row.get("reference", "")) for row in rows]
+    duplicate_prompt_count = total - len(set(prompts))
+    placeholder_count = sum(
+        1
+        for prompt in prompts
+        if all(f"{letter}. Option {letter}" in prompt for letter in "ABCD")
+    )
+    reference_counts: dict[str, int] = {}
+    for ref in references:
+        reference_counts[ref] = reference_counts.get(ref, 0) + 1
+    max_ref_ratio = max(reference_counts.values(), default=0) / max(1, total)
+    quality_failed = (
+        total > 0
+        and (
+            placeholder_count > 0
+            or duplicate_prompt_count / max(1, total) > 0.25
+            or max_ref_ratio > 0.75
+        )
+    )
+    return {
+        "cases_path": str(cases_path),
+        "total_cases": total,
+        "duplicate_prompt_count": duplicate_prompt_count,
+        "placeholder_choice_count": placeholder_count,
+        "reference_counts": reference_counts,
+        "max_reference_ratio": max_ref_ratio,
+        "quality_failed": quality_failed,
+    }
+
+
+def inspect_v0_lane_distill_quality(lane: str, input_root: Path) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for name in ("distill_train.jsonl", "distill_val.jsonl"):
+        rows.extend(_iter_jsonl_dicts(input_root / name))
+    total = len(rows)
+    prompts = [str(row.get("prompt", "")) for row in rows]
+    texts = [str(row.get("text", "")) for row in rows]
+    responses = [str(row.get("response", "")) for row in rows]
+    references = [str(row.get("reference", "")) for row in rows]
+    duplicate_prompt_count = total - len(set(prompts))
+    duplicate_text_count = total - len(set(texts))
+    fallback_return_none = sum(
+        1 for value in [*responses, *references, *texts] if "return None" in value
+    )
+    answer_zero_count = sum(
+        1 for row in rows
+        if str(row.get("reference", "")).strip() == "0"
+        or "<answer>0</answer>" in str(row.get("response", ""))
+    )
+    placeholder_choice_count = sum(
+        1
+        for prompt in prompts
+        if all(f"{letter}. Option {letter}" in prompt for letter in "ABCD")
+    )
+    empty_arguments_count = sum(
+        1
+        for value in [*responses, *references, *texts]
+        if '"arguments": {}' in value
+        or '"arguments":{}' in value
+        or "'arguments': {}" in value
+    )
+    reference_counts: dict[str, int] = {}
+    for ref in references:
+        reference_counts[ref] = reference_counts.get(ref, 0) + 1
+    max_reference_ratio = max(reference_counts.values(), default=0) / max(1, total)
+    duplicate_prompt_ratio = duplicate_prompt_count / max(1, total)
+    duplicate_text_ratio = duplicate_text_count / max(1, total)
+
+    lane_reasons: list[str] = []
+    if lane == "code" and fallback_return_none:
+        lane_reasons.append("code fallback `def solve(): return None` records detected")
+    if lane == "math" and answer_zero_count:
+        lane_reasons.append("math fallback `<answer>0</answer>` records detected")
+    if lane == "stem_reasoning" and placeholder_choice_count:
+        lane_reasons.append("stem placeholder `Option A/B/C/D` choices detected")
+    if lane == "tool_use" and empty_arguments_count:
+        lane_reasons.append("tool-use empty `arguments: {}` records detected")
+    if duplicate_prompt_ratio > 0.50:
+        lane_reasons.append("duplicate prompt ratio exceeds 50%")
+    if duplicate_text_ratio > 0.50:
+        lane_reasons.append("duplicate text ratio exceeds 50%")
+    if max_reference_ratio > 0.75 and lane in {"math", "stem_reasoning", "tool_use"}:
+        lane_reasons.append("reference label/value skew exceeds 75%")
+
+    return {
+        "lane": lane,
+        "input_root": str(input_root),
+        "total_records": total,
+        "unique_prompts": len(set(prompts)),
+        "duplicate_prompt_count": duplicate_prompt_count,
+        "duplicate_prompt_ratio": duplicate_prompt_ratio,
+        "unique_texts": len(set(texts)),
+        "duplicate_text_count": duplicate_text_count,
+        "duplicate_text_ratio": duplicate_text_ratio,
+        "fallback_return_none": fallback_return_none,
+        "answer_zero_count": answer_zero_count,
+        "placeholder_choice_count": placeholder_choice_count,
+        "empty_arguments_count": empty_arguments_count,
+        "reference_counts": reference_counts,
+        "max_reference_ratio": max_reference_ratio,
+        "quality_failed": bool(lane_reasons),
+        "reasons": lane_reasons,
+    }
+
+
+def enforce_v0_lane_quality(lane: str, input_root: Path) -> None:
+    if os.environ.get("ELT_ALLOW_V0_SMOKE_TRAINING") == "1":
+        return
+    quality = inspect_v0_lane_distill_quality(lane, input_root)
+    if not quality["quality_failed"]:
+        return
+    out = STATE_DIR / f"v0_{lane}_quality_gate.json"
+    _write_json(
+        out,
+        {
+            "state": "failed_quality_gate",
+            "reason": "v0 HauhauCS lane data is smoke-only and should not be used for further SFT/GRPO.",
+            "quality": quality,
+            "next_action": (
+                "Regenerate HauhauCS v1 distill with concrete tasks, references, "
+                "dedup, and verifier gates before training this lane."
+            ),
+        },
+    )
+    raise PipelineError(
+        f"refusing v0 {lane} SFT due quality gate failure; see {out}"
+    )
+
+
 def inspect_distill_bundle(output_dir: Path) -> dict[str, Any]:
     status = _read_json(output_dir / "status.json")
     heartbeat = _read_json(output_dir / "heartbeat.json")
@@ -493,6 +687,15 @@ LANE_PREP: list[tuple[str, Path, Path, str]] = [
     ("tool_use", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_tool_use"), Path("H:/elt_data/posttrain/tool_use/qwen35_hauhaucs"), "configs/posttrain_tool_sft_qwen35_hauhaucs.yaml"),
 ]
 
+STEM_SFT_CONFIG = "configs/posttrain_stem_sft_qwen35_hauhaucs.yaml"
+STEM_VAL_MANIFEST = Path(
+    "H:/elt_data/posttrain/stem_reasoning/qwen35_hauhaucs/benchmarks/"
+    "gguf_stem_reasoning_val_manifest.yaml"
+)
+STEM_VAL_EVAL_DIR = Path("H:/elt_data/runs/posttrain_stem_sft_qwen35_hauhaucs/eval")
+STEM_VAL_EVAL_JSON = STEM_VAL_EVAL_DIR / "stem_val_format_verifier_summary.json"
+STEM_VAL_EVAL_CSV = STEM_VAL_EVAL_DIR / "stem_val_format_verifier_anytime.csv"
+
 MIXED_LANE_PREP: list[tuple[str, Path, Path, str]] = [
     ("code", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_code"), Path("H:/elt_data/posttrain_mixed/code/qwen35_hauhaucs_replay"), "configs/posttrain_code_sft_qwen35_hauhaucs_replay.yaml"),
     ("math", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_math"), Path("H:/elt_data/posttrain_mixed/math/qwen35_hauhaucs_replay"), "configs/posttrain_math_sft_qwen35_hauhaucs_replay.yaml"),
@@ -501,11 +704,68 @@ MIXED_LANE_PREP: list[tuple[str, Path, Path, str]] = [
 ]
 
 
+def stage_stem_sft_val_eval(ctx: PipelineContext) -> None:
+    """Evaluate v0 stem SFT on its 13-case validation benchmark after completion."""
+
+    if file_nonempty(STEM_VAL_EVAL_JSON):
+        print(f"  skip existing stem val eval: {STEM_VAL_EVAL_JSON}")
+        return
+    quality = inspect_stem_v0_benchmark_quality()
+    if quality["quality_failed"]:
+        print("  skip stem v0 val eval: benchmark failed quality guard")
+        payload = {
+            "state": "skipped_quality_gate",
+            "reason": (
+                "v0 HauhauCS stem benchmark has placeholder choices, duplicate "
+                "prompts, or strong answer-label skew; do not spend GPU time on "
+                "this as a reasoning benchmark."
+            ),
+            "quality": quality,
+            "interpretation_note": (
+                "Treat v0 stem as smoke/pipeline-proof data only. Rebuild v1 "
+                "with concrete choices, balanced labels, dedup, and verifier "
+                "gates before using it for reasoning evaluation."
+            ),
+        }
+        _write_json(STEM_VAL_EVAL_JSON, payload)
+        STEM_VAL_EVAL_CSV.parent.mkdir(parents=True, exist_ok=True)
+        STEM_VAL_EVAL_CSV.write_text(
+            "state,reason,total_cases,duplicate_prompt_count,placeholder_choice_count,max_reference_ratio\n"
+            f"skipped_quality_gate,v0_quality_guard,{quality['total_cases']},"
+            f"{quality['duplicate_prompt_count']},{quality['placeholder_choice_count']},"
+            f"{quality['max_reference_ratio']}\n",
+            encoding="utf-8",
+        )
+        return
+    if not training_run_complete(STEM_SFT_CONFIG):
+        raise PipelineError(f"stem SFT is not complete yet: {STEM_SFT_CONFIG}")
+    run_dir = train_run_dir(STEM_SFT_CONFIG)
+    ckpt = run_dir / "last.pt"
+    if not file_nonempty(ckpt):
+        raise PipelineError(f"stem SFT checkpoint is missing: {ckpt}")
+    if not file_nonempty(STEM_VAL_MANIFEST):
+        raise PipelineError(f"stem benchmark manifest is missing: {STEM_VAL_MANIFEST}")
+    cmd = [
+        "uv", "run", "--no-sync", "elt-anytime",
+        "--ckpt", str(ckpt),
+        "--benchmark-manifest", str(STEM_VAL_MANIFEST),
+        "--bench-max-new-tokens", "96",
+        "--bench-temperature", "0.0",
+        "--bench-top-k", "1",
+        "--L-list", "1,2,3,4",
+        "--out-csv", str(STEM_VAL_EVAL_CSV),
+        "--out-json", str(STEM_VAL_EVAL_JSON),
+        "--run-dir", str(STEM_VAL_EVAL_DIR),
+    ]
+    run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
 def stage_lane_sft(ctx: PipelineContext) -> None:
     for lane, input_root, output_root, config_path in LANE_PREP:
         info = inspect_distill_bundle(input_root)
         if not (info["train_nonempty"] and info["val_nonempty"]):
             raise PipelineError(f"lane {lane} distill bundle is missing train/val JSONL: {input_root}")
+        enforce_v0_lane_quality(lane, input_root)
         prep_cmd = [
             "uv", "run", "--no-sync", "elt-prepare-gguf-lane-sft",
             "--input-root", str(input_root),
@@ -520,6 +780,8 @@ def stage_lane_sft(ctx: PipelineContext) -> None:
             entrypoint="elt-train",
             cleanup_offload_on_success=True,
         )
+        if lane == "stem_reasoning":
+            stage_stem_sft_val_eval(ctx)
 
 
 def stage_prepare_hauhaucs_lanes(ctx: PipelineContext) -> None:
@@ -538,11 +800,14 @@ def stage_prepare_hauhaucs_lanes(ctx: PipelineContext) -> None:
 
 
 def stage_hauhaucs_lane_sft_only(ctx: PipelineContext) -> None:
-    for _lane, _input_root, _output_root, config_path in LANE_PREP:
+    for lane, _input_root, _output_root, config_path in LANE_PREP:
+        enforce_v0_lane_quality(lane, _input_root)
         if training_run_complete(config_path):
             print(f"  skip completed training config: {config_path}")
             prune_completed_checkpoints(config_path, dry_run=ctx.dry_run)
             cleanup_completed_offload(config_path, dry_run=ctx.dry_run)
+            if lane == "stem_reasoning":
+                stage_stem_sft_val_eval(ctx)
             continue
         run_training_config(
             ctx,
@@ -550,6 +815,8 @@ def stage_hauhaucs_lane_sft_only(ctx: PipelineContext) -> None:
             entrypoint="elt-train",
             cleanup_offload_on_success=True,
         )
+        if lane == "stem_reasoning":
+            stage_stem_sft_val_eval(ctx)
 
 
 def run_grpo_configs(ctx: PipelineContext, config_paths: list[str]) -> None:
@@ -764,6 +1031,7 @@ FULL_STAGES: list[Stage] = [
     Stage("03_detection_sft", stage_detection_sft, long_running=True),
     Stage("04_hauhaucs_multilane_distill", stage_hauhaucs_multilane_distill, long_running=True),
     Stage("05_lane_sft", stage_lane_sft, long_running=True),
+    Stage("05a_stem_sft_val_eval", stage_stem_sft_val_eval),
     Stage("06_kl_grpo", stage_kl_grpo, long_running=True),
     Stage("07_side_lora_sft", stage_side_lora_sft, long_running=True),
     Stage("08_side_lora_ilsd", stage_side_lora_ilsd, long_running=True),
@@ -782,6 +1050,7 @@ POSTTRAIN_GRPO_STAGES: list[Stage] = [
     Stage("01_detection_sft", stage_detection_sft, long_running=True),
     Stage("02_prepare_hauhaucs_lanes", stage_prepare_hauhaucs_lanes),
     Stage("03_hauhaucs_lane_sft", stage_hauhaucs_lane_sft_only, long_running=True),
+    Stage("03a_stem_sft_val_eval", stage_stem_sft_val_eval),
     Stage("04_kl_grpo", stage_kl_grpo, long_running=True),
     Stage("05_side_lora_ilsd", stage_side_lora_ilsd, long_running=True),
     Stage("06_export_side_lora_adapters", stage_export_side_lora_adapters),

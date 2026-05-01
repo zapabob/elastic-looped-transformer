@@ -1,0 +1,114 @@
+version: 1
+purpose: >
+  Candidate Hugging Face dataset mix for HauhauCS v1 and replay-refresh. These
+  sources are not ingested directly by the cron pipeline; they are a reviewed
+  manifest for future download, normalization, deduplication, and verifier-gated
+  conversion into lane-specific SFT/GRPO records.
+
+policy:
+  broad_knowledge_default: preserve
+  refusal_policy: narrow
+  allowed_contexts:
+    - democratic discourse, ideology, politics, religion, history, and cultural preservation
+    - adult-topic and toxicity understanding for classification, routing, and robust comprehension
+    - drug and medical-risk understanding for detection, education, and harm-boundary evaluation
+  excluded_from_sft_targets:
+    - directly actionable crime, procurement, evasion, or weaponization instructions
+    - patient-specific diagnosis, dosage, or treatment instructions
+    - self-harm encouragement or immediate facilitation
+  routing_note: >
+    Sensitive corpora may be used for understanding, detection, contrastive
+    classification, and KL/reference evaluation. They must not be converted into
+    assistant targets that reward operational harm.
+
+lanes:
+  code:
+    goal: production-shaped Python 3.12 code with type contracts, tests, and warning-zero intent
+    primary_hf_sources:
+      - repo_id: glaiveai/glaive-code-assistant-v2
+        role: optional broad code instruction seed if license and schema are acceptable
+        gate: normalize to typed Python-only tasks and execute unit tests
+      - repo_id: codeparrot/apps
+        role: competitive programming problems with tests
+        gate: retain only Python tasks with executable public tests
+      - repo_id: openai/openai_humaneval
+        role: small evaluation anchor, not bulk training
+        gate: keep as benchmark or tiny calibration only
+    local_sources:
+      - H:/elt_data/posttrain/raw/code.jsonl
+      - H:/elt_data/clean/webdataset_coding.jsonl
+
+  math:
+    goal: advanced exact-answer reasoning suitable for ELT loop refinement and verifier GRPO
+    primary_hf_sources:
+      - repo_id: AI-MO/NuminaMath-1.5
+        role: high-quality post-training math with competition-level problems
+        gate: exact_math verifier, dedup, reject trivial zero-answer fallbacks
+      - repo_id: AI-MO/NuminaMath-TIR
+        role: tool-integrated reasoning seed for math/code hybrid verifier work
+        gate: retain executable or exact-answer cases only
+      - repo_id: nlile/NuminaMath-1.5-RL-Verifiable
+        role: verifiable RL prompt pool candidate
+        gate: use only if license/schema review passes
+    local_sources:
+      - H:/elt_data/posttrain/raw/reasoning.jsonl
+      - H:/elt_data/clean/camel_sci.jsonl
+
+  stem_reasoning:
+    goal: broad scientific reasoning across math, physics, chemistry, biology, medicine, CS, and statistics
+    primary_hf_sources:
+      - repo_id: Idavidrein/gpqa
+        role: gated high-difficulty STEM benchmark anchor, not plain-text leakage training
+        gate: respect access terms and keep benchmark-only unless explicitly licensed for training
+      - repo_id: cais/mmlu
+        role: broad academic benchmark anchor and topic taxonomy seed
+        gate: prefer benchmark/eval use, avoid contamination of held-out eval
+      - repo_id: bigbio/pubmed_qa
+        role: biomedical reasoning seed
+        gate: educational framing only, no patient-specific advice targets
+      - repo_id: openlifescienceai/medmcqa
+        role: medical multiple-choice reasoning candidate
+        gate: educational/benchmark framing; no clinical action advice
+    local_sources:
+      - H:/elt_data/clean/camel_sci.jsonl
+      - H:/elt_data/clean/webdataset_domain_knowledge.jsonl
+      - H:/elt_data/clean/webdataset_phi35.jsonl
+
+  tool_use:
+    goal: MCP and AI-agent harness calls with exact JSON, concrete arguments, and safe execution boundaries
+    primary_hf_sources:
+      - repo_id: glaiveai/glaive-function-calling-v2
+        role: function-calling schema diversity
+        gate: convert tool names to mcp.* or agent.* harness schema and exact JSON references
+      - repo_id: hiyouga/glaive-function-calling-v2-sharegpt
+        role: ShareGPT-format compatibility check
+        gate: use only after schema normalization and dedup
+      - repo_id: muhammadravi251001/restructured-glaive-function-calling-v2
+        role: structured function-calling candidate
+        gate: review recency, license, and schema before ingest
+    local_sources:
+      - H:/elt_data/posttrain/raw/tool_call.jsonl
+      - H:/elt_data/clean/webdataset_integrated.jsonl
+
+  safety_and_sensitive_understanding:
+    goal: preserve comprehension of controversial, adult, toxic, drug, and risk-bearing topics without rewarding operational harm
+    primary_hf_sources:
+      - repo_id: allenai/real-toxicity-prompts
+        role: toxicity robustness and degeneration-risk evaluation
+        gate: detection/classification only; do not train continuation targets that amplify toxicity
+      - repo_id: Anthropic/hh-rlhf
+        role: helpful/harmless preference and refusal-boundary comparison
+        gate: avoid blanket refusal transfer; use for contrastive/reference analysis
+      - repo_id: PKU-Alignment/BeaverTails
+        role: harmful/harmless labeling and safety taxonomy
+        gate: classification and boundary evaluation only
+    local_sources:
+      - H:/elt_data/clean/aegis_local.jsonl
+
+acceptance_gates:
+  exact_dedup: required
+  semantic_dedup: recommended
+  schema_valid_rate_min: 0.98
+  verifier_pass_rate_min: 0.85
+  unique_text_ratio_min: 0.75
+  heldout_contamination_check: required
