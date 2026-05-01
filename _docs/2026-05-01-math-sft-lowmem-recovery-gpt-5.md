@@ -9,7 +9,9 @@ loop in `03_hauhaucs_lane_sft` while resuming
 ## Files touched
 
 - `configs/posttrain_math_sft_qwen35_hauhaucs.yaml`
+- `src/elt_lm/train.py`
 - `tests/test_multilane_configs.py`
+- `tests/test_rolling_ckpt.py`
 
 ## Key decisions
 
@@ -25,6 +27,9 @@ loop in `03_hauhaucs_lane_sft` while resuming
   configs can still instantiate the model with `L_max: 4` and load the weights.
 - Kept teacher-temperature KD and masked soft CE active so the run still performs
   ILSD-style distillation rather than becoming plain GT-only SFT.
+- Switched milestone and rolling checkpoints to temp-file + `os.replace`
+  atomic writes. This avoids exposing a 0-byte `rolling_*.pt` as the target
+  checkpoint while a multi-GB `torch.save` is still in progress.
 
 ## Evidence
 
@@ -41,6 +46,12 @@ Focused config verification:
 
 ```powershell
 uv run --no-sync pytest -q tests/test_multilane_configs.py
+```
+
+Checkpoint write verification after the atomic-save patch:
+
+```powershell
+uv run --no-sync pytest -q tests/test_multilane_configs.py tests/test_rolling_ckpt.py
 ```
 
 ## Next session notes

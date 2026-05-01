@@ -131,11 +131,28 @@ def _build_ckpt_state(model: nn.Module, opt: torch.optim.Optimizer,
     return state
 
 
+def _atomic_torch_save(state: dict, path: Path) -> None:
+    """Write a checkpoint through a temp file, then atomically replace target."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        if tmp.exists():
+            tmp.unlink()
+        torch.save(state, tmp)
+        os.replace(tmp, path)
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+
+
 def save_checkpoint(model: nn.Module, opt: torch.optim.Optimizer, cfg: TrainConfig,
                     step: int, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"step_{step:07d}.pt"
-    torch.save(_build_ckpt_state(model, opt, cfg, step), path)
+    _atomic_torch_save(_build_ckpt_state(model, opt, cfg, step), path)
     _update_last_hardlink(out_dir, path)
     print(f"  saved {path}")
 
@@ -161,7 +178,7 @@ class RollingCheckpointer:
             return False
         self.out_dir.mkdir(parents=True, exist_ok=True)
         path = self.out_dir / f"rolling_{self.next_slot}.pt"
-        torch.save(_build_ckpt_state(model, opt, cfg, step), path)
+        _atomic_torch_save(_build_ckpt_state(model, opt, cfg, step), path)
         _update_last_hardlink(self.out_dir, path)
         saved_slot = self.next_slot
         self.next_slot = (self.next_slot + 1) % self.keep

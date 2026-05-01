@@ -43,6 +43,7 @@ def test_rolling_round_robin_fills_3_slots(tmp_path: Path) -> None:
     for i in range(3):
         assert (tmp_path / f"rolling_{i}.pt").exists(), f"rolling_{i}.pt missing"
     assert (tmp_path / "last.pt").exists()
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_rolling_slot_wraps_and_no_extra_files(tmp_path: Path) -> None:
@@ -60,6 +61,7 @@ def test_rolling_slot_wraps_and_no_extra_files(tmp_path: Path) -> None:
 
     # After 5 saves (round-robin 0,1,2,0,1) next slot is 2; slot 1 wrote last
     assert rolling.next_slot == 2
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_rolling_respects_interval(tmp_path: Path) -> None:
