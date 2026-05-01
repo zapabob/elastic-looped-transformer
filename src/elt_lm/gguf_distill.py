@@ -1558,16 +1558,16 @@ def _expected_stem_choice(task: DistillTask) -> str:
 _V1_DIVERSITY_AXES: dict[str, dict[str, list[str]]] = {
     "code": {
         "difficulty": [
-            "medium: one public API plus normal and edge cases",
-            "hard: two interacting helpers with explicit error behavior",
-            "hard: parse/transform nested data with stable ordering",
-            "expert: maintain a typed boundary while repairing a subtle bug",
+            "medium: one small public function plus normal and edge cases",
+            "medium: one helper and one public function with explicit error behavior",
+            "medium: parse or transform a compact data structure with stable ordering",
+            "hard: repair a subtle bug while keeping the public function typed",
         ],
         "engineering_style": [
-            "dataclass or TypedDict contract",
-            "Protocol or enum-backed public interface",
-            "pathlib/datetime/decimal safe standard-library handling",
-            "pure function with deterministic property-like assertions",
+            "plain typed function contract",
+            "small dataclass or TypedDict only if it keeps the example shorter",
+            "pathlib/datetime/decimal handling only for a compact utility",
+            "pure function with direct top-level assertions",
         ],
         "failure_mode": [
             "empty input and malformed input",
@@ -1699,9 +1699,10 @@ def build_teacher_instruction(
                 "- Keep the code deterministic, side-effect-light, Python 3.12 compatible, and standard-library only.\n"
                 "- Treat warning-zero as a data contract: code should pass ruff check and mypy --strict when those tools are available.\n"
                 "- verifier_snippet must contain meaningful assert statements with expected values for nominal and edge cases.\n"
-                "- verifier_snippet must execute its assertions at top level, or define a test_* function and call it at top level.\n"
+                "- Prefer direct top-level assert statements in verifier_snippet; if you define test_* functions, call each one at top level.\n"
                 "- verifier_snippet is appended after assistant_code; do not redefine the candidate function, classes, dataclasses, or enums.\n"
-                "- Keep verifier_snippet concise: direct construction of inputs plus asserts, preferably under 45 lines.\n"
+                "- Keep assistant_code under 45 lines and verifier_snippet under 24 lines whenever possible.\n"
+                "- Do not import from __main__, importlib, sys, or redefine helper code in verifier_snippet.\n"
                 "- Do not use a callable-only verifier such as assert callable(...).\n"
                 "- Keep assistant_code compact: one small module, at most about 90 lines, no version guards unless necessary.\n"
                 "- MILSPEC-style means reliable contracts and tests; avoid lengthy CRC, crypto, binary protocol, networking, or OS-control implementations.\n"

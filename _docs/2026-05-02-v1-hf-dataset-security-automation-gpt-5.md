@@ -97,6 +97,10 @@ before it can proceed.
   redefinition. The code lane now rejects verifier snippets that redefine
   top-level candidate APIs, and the prompt tells the teacher that the verifier
   is appended after `assistant_code`.
+- After tightening the gate, early code-v1 attempts showed low pass rate because
+  the prompt still encouraged large dataclass/API examples. The code prompt and
+  code-v1 task variants were narrowed to compact typed utilities, direct
+  top-level asserts, no candidate redefinition, and concise verifier snippets.
 
 ## Next session notes
 

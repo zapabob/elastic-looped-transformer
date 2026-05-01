@@ -783,7 +783,7 @@ def test_v1_teacher_instructions_encode_lane_quality_requirements() -> None:
     assert "MILSPEC-style Python" in code_prompt
     assert "mypy --strict" in code_prompt
     assert "complete parameter and return type annotations" in code_prompt
-    assert "call it at top level" in code_prompt
+    assert "call each one at top level" in code_prompt
     assert "do not redefine the candidate function" in code_prompt
 
     math_prompt = build_teacher_instruction(_lane_task("math"), quality_profile="v1")

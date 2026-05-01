@@ -37,38 +37,38 @@ lane: code
 
 tasks:
   - name: milspec_typed_api_implementation
-    description: write self-contained Python 3.12 APIs with complete type annotations, explicit contracts, edge-case tests, and warning-zero intent
+    description: write compact self-contained Python 3.12 utilities with complete type annotations, direct top-level assert tests, and warning-zero intent
     target_kind: python_exec
     tags: [python, milspec, typing, ruff, mypy, stdlib]
     variants:
-      - implement a pure function with typed parameters, typed return value, and deterministic examples
-      - parse structured JSON into a TypedDict or dataclass using only the standard library
-      - transform nested dictionaries with pathlib-safe or datetime-safe handling and expected outputs
-      - write a small utility with explicit ValueError behavior and assert-based boundary tests
+      - implement one pure function with typed parameters, typed return value, and three direct assert examples
+      - parse a small JSON-like dictionary into a typed return value using only the standard library
+      - transform a compact nested dictionary with stable ordering and direct expected outputs
+      - write a small utility with explicit ValueError behavior and top-level boundary asserts
   - name: production_bugfix_and_patch
-    description: repair realistic Python defects while preserving typed public interfaces and proving the patch with behavioral assertions
+    description: repair small realistic Python defects while preserving typed public interfaces and proving the patch with direct behavioral assertions
     target_kind: python_exec
     tags: [python, debugging, patching, regression_tests]
     variants:
-      - fix an off-by-one error in a typed function and prove nominal and boundary cases
+      - fix an off-by-one error in one typed function and prove nominal and boundary cases
       - repair incorrect empty-input handling without broad exception swallowing
-      - correct state mutation or scoping mistakes in a small dataclass-backed component
-      - fix parsing code that mishandles whitespace, missing keys, or invalid enum values
+      - correct a small state mutation or scoping mistake without redefining the API in tests
+      - fix parsing code that mishandles whitespace or missing keys
   - name: test_driven_engineering
-    description: produce warning-conscious Python code that satisfies a concrete behavioral contract and assert harness
+    description: produce warning-conscious compact Python code that satisfies a concrete behavioral contract and direct assert harness
     target_kind: python_exec
     tags: [python, testing, assertions, software_engineering]
     variants:
-      - implement a class or function with typed input validation and direct assert tests
+      - implement a single function with typed input validation and direct assert tests
       - handle normal, boundary, and malformed cases with clear errors
-      - use dataclass or Protocol when it improves the interface contract
+      - use dataclass only when the example stays compact
       - keep implementation direct-execution compatible and side-effect-light
   - name: applied_code_reasoning
-    description: solve practical coding tasks with nontrivial reasoning, maintainable structure, and executable verification
+    description: solve compact practical coding tasks with nontrivial reasoning, maintainable structure, and executable verification
     target_kind: python_exec
     tags: [python, reasoning, data_processing, maintainability]
     variants:
-      - derive an algorithm from a concrete requirement and state edge cases in verifier assertions
-      - combine regex, parsing, and aggregation with typed intermediate structures
-      - use collections, itertools, or functools to simplify implementation without obscuring correctness
+      - derive a small algorithm from a concrete requirement and state edge cases in verifier assertions
+      - combine regex, parsing, and aggregation with simple typed intermediate structures
+      - use collections or itertools only when they simplify implementation
       - favor clarity, maintainability, and deterministic behavior over micro-optimizations
