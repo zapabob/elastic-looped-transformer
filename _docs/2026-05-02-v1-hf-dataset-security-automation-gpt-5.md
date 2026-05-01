@@ -36,6 +36,9 @@ sources, and make the resumable Windows cron pipeline run the v1 path with
 - v1 teacher requests now include a strict JSON system message plus JSON-object
   response formatting. This was added after the first code-v1 attempts produced
   only fallback/refusal-shaped outputs under the quality gate.
+- The HauhauCS v1 GGUF configs now launch `llama-server` with
+  `--reasoning off --reasoning-budget 0 --reasoning-format none`; Qwen was
+  otherwise spending the entire completion budget in `reasoning_content`.
 - HF dataset fetching is implemented as a reviewed/sampled acquisition stage.
   Sensitive corpora are retained for detection, contrastive, or boundary
   evaluation use, not as operational harm targets.

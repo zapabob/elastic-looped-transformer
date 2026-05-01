@@ -12,6 +12,9 @@ teacher:
   top_p: 0.95
   max_new_tokens: 512
   timeout_sec: 600
+  reasoning: "off"
+  reasoning_budget: 0
+  reasoning_format: none
 
 pipeline:
   output_root: H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_code_v1

@@ -18,6 +18,21 @@ def test_load_multilane_distill_configs() -> None:
         assert len(cfg.tasks) >= 1
 
 
+def test_load_v1_multilane_distill_configs_disable_teacher_reasoning() -> None:
+    for path, lane in [
+        ("configs/gguf_distill_code_qwen35_hauhaucs_v1.yaml", "code"),
+        ("configs/gguf_distill_math_qwen35_hauhaucs_v1.yaml", "math"),
+        ("configs/gguf_distill_stem_qwen35_hauhaucs_v1.yaml", "stem_reasoning"),
+        ("configs/gguf_distill_tool_qwen35_hauhaucs_v1.yaml", "tool_use"),
+    ]:
+        cfg = load_gguf_distill_config(path)
+        assert cfg.lane == lane
+        assert cfg.pipeline.quality_profile == "v1"
+        assert cfg.teacher.reasoning == "off"
+        assert cfg.teacher.reasoning_budget == 0
+        assert cfg.teacher.reasoning_format == "none"
+
+
 def test_load_multilane_queue_config() -> None:
     cfg = load_gguf_distill_queue_config("configs/gguf_distill_qwen35_hauhaucs_multilane_queue.yaml")
     assert [stage.name for stage in cfg.stages] == ["code", "math", "stem_reasoning", "tool_use"]

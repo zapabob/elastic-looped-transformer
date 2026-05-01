@@ -47,6 +47,9 @@ class GGUFTeacherConfig:
     top_p: float = 0.95
     max_new_tokens: int = 384
     timeout_sec: int = 120
+    reasoning: str = "auto"
+    reasoning_budget: int = -1
+    reasoning_format: str = "auto"
 
 
 @dataclass
@@ -1441,6 +1444,15 @@ def launch_llama_server(cfg: GGUFTeacherConfig, log_path: Path) -> subprocess.Po
         "-ngl", str(cfg.n_gpu_layers),
         "-t", str(cfg.threads),
     ]
+    reasoning = str(cfg.reasoning).strip().lower()
+    if reasoning in {"false", "0", "no"}:
+        reasoning = "off"
+    if reasoning != "auto":
+        cmd.extend(["--reasoning", reasoning])
+    if cfg.reasoning_budget >= 0:
+        cmd.extend(["--reasoning-budget", str(cfg.reasoning_budget)])
+    if cfg.reasoning_format != "auto":
+        cmd.extend(["--reasoning-format", cfg.reasoning_format])
     if cfg.use_mmproj and cfg.mmproj_path:
         cmd.extend(["--mmproj", cfg.mmproj_path])
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1718,6 +1730,17 @@ def request_teacher_example(
     quality_profile: QualityProfile = "smoke",
     attempt: int = 0,
 ) -> dict[str, Any]:
+    instruction = build_teacher_instruction(
+        task,
+        quality_profile=quality_profile,
+        attempt=attempt,
+    )
+    if quality_profile == "v1":
+        instruction = (
+            "/no_think\n"
+            "Do not write hidden reasoning. Do not plan. Emit the JSON object immediately.\n"
+            f"{instruction}"
+        )
     payload = {
         "model": cfg.name,
         "messages": [
@@ -1731,11 +1754,7 @@ def request_teacher_example(
             },
             {
                 "role": "user",
-                "content": build_teacher_instruction(
-                    task,
-                    quality_profile=quality_profile,
-                    attempt=attempt,
-                ),
+                "content": instruction,
             }
         ],
         "temperature": cfg.temperature,
