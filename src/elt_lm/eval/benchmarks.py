@@ -23,6 +23,7 @@ from elt_lm.model import ELTLanguageModel
 from elt_lm.verifiers import (
     exact_math_correctness,
     exact_match_correctness,
+    code_static_spec_correctness,
     format_score,
     gsm8k_correctness,
     json_match_correctness,
@@ -39,8 +40,20 @@ BenchmarkTask = Literal[
     "mcq_reasoning",
     "multiple_choice",
     "python_exec",
+    "code_static_spec",
     "json_match",
 ]
+
+BENCHMARK_TASKS: set[str] = {
+    "exact_match",
+    "exact_math",
+    "gsm8k",
+    "mcq_reasoning",
+    "multiple_choice",
+    "python_exec",
+    "code_static_spec",
+    "json_match",
+}
 
 
 @dataclass
@@ -168,10 +181,13 @@ def _build_case(spec: BenchmarkSpec, row: dict[str, Any]) -> BenchmarkCase | Non
 
     if not prompt or not reference:
         return None
+    task = row.get("task", spec.task)
+    if task not in BENCHMARK_TASKS:
+        task = spec.task
     return BenchmarkCase(
         prompt=prompt,
         reference=reference,
-        task=spec.task,
+        task=task,
         benchmark=spec.name,
         metadata=row,
     )
@@ -223,6 +239,8 @@ def score_response(task: BenchmarkTask, response: str, reference: str) -> float:
         return multiple_choice_correctness(response, reference)
     if task == "python_exec":
         return python_exec_correctness(response, reference)
+    if task == "code_static_spec":
+        return code_static_spec_correctness(response, reference)
     if task == "json_match":
         return json_match_correctness(response, reference)
     raise ValueError(f"unknown benchmark task: {task}")

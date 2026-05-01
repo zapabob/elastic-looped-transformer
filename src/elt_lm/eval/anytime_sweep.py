@@ -20,22 +20,25 @@ from elt_lm.eval.benchmarks import (
     evaluate_benchmark,
     load_benchmark_manifest,
 )
-from elt_lm.model import ELTLanguageModel
+from elt_lm.eval.statistics import fold_accuracy_stats
+from elt_lm.model import build_model
 from elt_lm.telemetry import make_writer
+from elt_lm.train import load_checkpoint
 
 
-def load_model(ckpt: str | Path, device: torch.device) -> tuple[ELTLanguageModel, TrainConfig]:
-    obj = torch.load(ckpt, map_location=device, weights_only=False)
+def load_model(ckpt: str | Path, device: torch.device) -> tuple[torch.nn.Module, TrainConfig]:
+    obj = torch.load(ckpt, map_location="cpu", weights_only=False)
     cfg: TrainConfig = obj["cfg"]
-    model = ELTLanguageModel(cfg.model).to(device=device)
-    model.load_state_dict(obj["model"])
+    model = build_model(cfg.model)
+    load_checkpoint(ckpt, model, opt=None)
+    model = model.to(device=device)
     model.eval()
     return model, cfg
 
 
 @torch.no_grad()
 def eval_at_L(
-    model: ELTLanguageModel,
+    model: torch.nn.Module,
     dl: DataLoader,
     L: int,
     device: torch.device,
@@ -171,6 +174,7 @@ def run(args: argparse.Namespace) -> None:
         L_range = _parse_l_list(getattr(args, "l_list", ""), cfg=cfg)
         first_L = L_range[0]
         rows: list[dict[str, float | int | str]] = []
+        details: list[dict[str, object]] = []
         benchmark_history: dict[str, dict[int, BenchmarkResult]] = {}
         for L in L_range:
             approx_flops = L * cfg.model.n_unique_layers
@@ -230,10 +234,13 @@ def run(args: argparse.Namespace) -> None:
                     baseline=baseline,
                     previous=previous,
                 )
+                cv = fold_accuracy_stats(result.case_correct, folds=args.cv_folds)
+                fmt_cv = fold_accuracy_stats(result.case_format_correct, folds=args.cv_folds)
                 history[L] = result
                 print(
                     f"L={L}  benchmark={result.benchmark}  score={result.accuracy:.4f}  "
                     f"format={result.format_rate:.4f}  "
+                    f"cv={cv.mean:.4f}±{cv.sem:.4f}  "
                     f"gain={loop_metrics['loop_gain']:+.4f}  "
                     f"self-correct={_csv_value(loop_metrics['self_correction_rate'])}  "
                     f"overthink={_csv_value(loop_metrics['overthinking_rate'])}  "
@@ -253,6 +260,14 @@ def run(args: argparse.Namespace) -> None:
                     format_correct=result.format_correct,
                     verifier_success_rate=result.accuracy,
                     verifier_correct=result.correct,
+                    cv_folds=cv.fold_count,
+                    cv_mean=cv.mean,
+                    cv_std=cv.std,
+                    cv_sem=cv.sem,
+                    cv_ci95_low=cv.ci95_low,
+                    cv_ci95_high=cv.ci95_high,
+                    format_cv_mean=fmt_cv.mean,
+                    format_cv_sem=fmt_cv.sem,
                     latency_ms=result.latency_ms_per_case,
                     tokens_per_sec=result.tokens_per_sec,
                     attempts_per_case=result.attempts_per_case,
@@ -274,6 +289,14 @@ def run(args: argparse.Namespace) -> None:
                     "format_correct": result.format_correct,
                     "verifier_success_rate": result.accuracy,
                     "verifier_correct": result.correct,
+                    "cv_folds": cv.fold_count,
+                    "cv_mean": cv.mean,
+                    "cv_std": cv.std,
+                    "cv_sem": cv.sem,
+                    "cv_ci95_low": cv.ci95_low,
+                    "cv_ci95_high": cv.ci95_high,
+                    "format_cv_mean": fmt_cv.mean,
+                    "format_cv_sem": fmt_cv.sem,
                     "tokens_per_sec": result.tokens_per_sec,
                     "latency_ms": result.latency_ms_per_case,
                     "rel_flops": approx_flops,
@@ -283,6 +306,16 @@ def run(args: argparse.Namespace) -> None:
                     "marginal_gain": _csv_value(loop_metrics["marginal_gain"]),
                     "self_correction_rate": _csv_value(loop_metrics["self_correction_rate"]),
                     "overthinking_rate": _csv_value(loop_metrics["overthinking_rate"]),
+                })
+                details.append({
+                    "benchmark": result.benchmark,
+                    "task": result.task,
+                    "L": L,
+                    "case_correct": result.case_correct,
+                    "case_format_correct": result.case_format_correct,
+                    "cv": cv.__dict__,
+                    "format_cv": fmt_cv.__dict__,
+                    "loop_metrics": loop_metrics,
                 })
 
         out_csv = Path(args.out_csv) if args.out_csv else None
@@ -303,6 +336,14 @@ def run(args: argparse.Namespace) -> None:
                         "format_correct",
                         "verifier_success_rate",
                         "verifier_correct",
+                        "cv_folds",
+                        "cv_mean",
+                        "cv_std",
+                        "cv_sem",
+                        "cv_ci95_low",
+                        "cv_ci95_high",
+                        "format_cv_mean",
+                        "format_cv_sem",
                         "tokens_per_sec",
                         "latency_ms",
                         "rel_flops",
@@ -325,6 +366,8 @@ def run(args: argparse.Namespace) -> None:
                 "ckpt": str(args.ckpt),
                 "benchmark_manifest": str(args.benchmark_manifest or ""),
                 "rows": rows,
+                "details": details,
+                "cv_folds": args.cv_folds,
                 "interpretation_note": (
                     "For v0 HauhauCS stem data, high format/verifier rates mainly "
                     "indicate schema memorization on a small duplicate-heavy "
@@ -351,6 +394,7 @@ def cli() -> None:
     p.add_argument("--bench-top-k", type=int, default=1)
     p.add_argument("--bench-num-samples", type=int, default=1)
     p.add_argument("--bench-verifier-retries", type=int, default=0)
+    p.add_argument("--cv-folds", type=int, default=5)
     p.add_argument("--L-list", dest="l_list", type=str, default="")
     p.add_argument("--out-csv", type=str, default="")
     p.add_argument("--out-json", type=str, default="")

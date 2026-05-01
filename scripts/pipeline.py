@@ -15,6 +15,7 @@ Manual checks:
     uv run --no-sync python scripts/pipeline.py --profile posttrain-grpo --dry-run
     uv run --no-sync python scripts/pipeline.py --profile replay-refresh --dry-run
     uv run --no-sync python scripts/pipeline.py --profile v1-pretrain-posttrain --dry-run
+    uv run --no-sync python scripts/pipeline.py --profile synthetic-gb-side-lora-long --dry-run
     uv run --no-sync python scripts/pipeline.py --only 00_pretrain_clean --dry-run
     uv run --no-sync python scripts/pipeline.py --no-start-long-train
 """
@@ -39,6 +40,7 @@ STATE_DIR = Path("H:/elt_data/pipeline_state")
 LOG_DIR = Path("H:/elt_data/pipeline_logs")
 H_CACHE_ROOT = Path("H:/elt_data/cache")
 H_TEMP_DIR = H_CACHE_ROOT / "tmp"
+EVAL_ROOT = Path("H:/elt_data/eval")
 TELEMETRY_PATH = STATE_DIR / "pipeline.jsonl"
 STATUS_PATH = STATE_DIR / "status.json"
 HEARTBEAT_PATH = STATE_DIR / "heartbeat.json"
@@ -1188,6 +1190,12 @@ SIDE_LORA_SYNTHETIC_GB_SFT_CONFIGS: list[str] = [
     "configs/qwen35_4b_side_lora_tool_sft_synthetic_gb.yaml",
 ]
 
+SIDE_LORA_SYNTHETIC_GB_GRPO_CONFIGS: list[str] = [
+    "configs/grpo_side_lora_code_synthetic_gb.yaml",
+    "configs/grpo_side_lora_math_synthetic_gb.yaml",
+    "configs/grpo_side_lora_tool_synthetic_gb.yaml",
+]
+
 
 def stage_prepare_synthetic_gb_lora_lanes(ctx: PipelineContext) -> None:
     for lane, input_root, output_root, _config_path in SYNTHETIC_GB_LORA_PREP:
@@ -1214,6 +1222,30 @@ def stage_side_lora_synthetic_gb_sft(ctx: PipelineContext) -> None:
     run_side_lora_sft_configs(ctx, SIDE_LORA_SYNTHETIC_GB_SFT_CONFIGS)
 
 
+def run_side_lora_grpo_configs(ctx: PipelineContext, config_paths: list[str]) -> None:
+    for config_path in config_paths:
+        raw = load_train_yaml(config_path)
+        kl_beta = float((raw.get("grpo") or {}).get("kl_beta", 0.0))
+        if kl_beta <= 0:
+            raise PipelineError(f"side LoRA GRPO config must keep kl_beta > 0: {config_path}")
+        init_ckpt = Path(str((raw.get("grpo") or {}).get("init_ckpt", "")))
+        if not file_nonempty(init_ckpt):
+            raise PipelineError(f"missing side LoRA SFT checkpoint for GRPO: {init_ckpt}")
+        if training_run_complete(config_path):
+            print(f"  skip completed side LoRA GRPO config: {config_path}")
+            continue
+        run_training_config(
+            ctx,
+            config_path,
+            entrypoint="elt-train-grpo",
+            use_vsdev=True,
+        )
+
+
+def stage_side_lora_synthetic_gb_grpo(ctx: PipelineContext) -> None:
+    run_side_lora_grpo_configs(ctx, SIDE_LORA_SYNTHETIC_GB_GRPO_CONFIGS)
+
+
 def stage_export_synthetic_gb_side_lora_adapters(ctx: PipelineContext) -> None:
     exports = [
         ("synthetic_code_gb", Path("H:/elt_data/runs/qwen35_4b_side_lora_code_sft_synthetic_gb/last.pt")),
@@ -1230,6 +1262,158 @@ def stage_export_synthetic_gb_side_lora_adapters(ctx: PipelineContext) -> None:
             "--out-dir", f"H:/elt_data/adapters/qwen35_4b_side/{name}",
         ]
         run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_export_synthetic_gb_side_lora_grpo_adapters(ctx: PipelineContext) -> None:
+    exports = [
+        ("synthetic_code_gb_grpo", Path("H:/elt_data/runs/grpo_side_lora_code_synthetic_gb/last.pt")),
+        ("synthetic_math_gb_grpo", Path("H:/elt_data/runs/grpo_side_lora_math_synthetic_gb/last.pt")),
+        ("synthetic_tool_gb_grpo", Path("H:/elt_data/runs/grpo_side_lora_tool_synthetic_gb/last.pt")),
+    ]
+    for name, ckpt in exports:
+        if not file_nonempty(ckpt):
+            raise PipelineError(f"cannot export missing synthetic GRPO side LoRA checkpoint: {ckpt}")
+        cmd = [
+            "uv", "run", "--no-sync", "python", "-m", "elt_lm.export_lora_adapter",
+            "--ckpt", str(ckpt),
+            "--out-dir", f"H:/elt_data/adapters/qwen35_4b_side/{name}",
+        ]
+        run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def _run_side_lora_cv_eval(
+    ctx: PipelineContext,
+    *,
+    name: str,
+    ckpt: Path,
+    manifest: Path,
+    max_new_tokens: int,
+) -> None:
+    if not file_nonempty(ckpt):
+        raise PipelineError(f"missing checkpoint for CV eval: {ckpt}")
+    if not file_nonempty(manifest):
+        raise PipelineError(f"missing benchmark manifest for CV eval: {manifest}")
+    out_dir = EVAL_ROOT / "synthetic_gb_side_lora" / name
+    cmd = [
+        "uv", "run", "--no-sync", "elt-anytime",
+        "--ckpt", str(ckpt),
+        "--benchmark-manifest", str(manifest),
+        "--L-list", "1",
+        "--bench-max-new-tokens", str(max_new_tokens),
+        "--bench-temperature", "0.0",
+        "--bench-top-k", "1",
+        "--bench-num-samples", "1",
+        "--cv-folds", "5",
+        "--out-csv", str(out_dir / "cv_results.csv"),
+        "--out-json", str(out_dir / "cv_results.json"),
+        "--run-dir", str(out_dir),
+    ]
+    run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_synthetic_gb_side_lora_cv_eval(ctx: PipelineContext) -> None:
+    targets = [
+        (
+            "code_sft",
+            Path("H:/elt_data/runs/qwen35_4b_side_lora_code_sft_synthetic_gb/last.pt"),
+            Path("H:/elt_data/posttrain_synthetic/code/v1_gb/benchmarks/gguf_code_val_manifest.yaml"),
+            192,
+        ),
+        (
+            "math_sft",
+            Path("H:/elt_data/runs/qwen35_4b_side_lora_math_sft_synthetic_gb/last.pt"),
+            Path("H:/elt_data/posttrain_synthetic/math/v1_gb/benchmarks/gguf_math_val_manifest.yaml"),
+            128,
+        ),
+        (
+            "stem_sft",
+            Path("H:/elt_data/runs/qwen35_4b_side_lora_stem_sft_synthetic_gb/last.pt"),
+            Path("H:/elt_data/posttrain_synthetic/stem_reasoning/v1_gb/benchmarks/gguf_stem_reasoning_val_manifest.yaml"),
+            128,
+        ),
+        (
+            "tool_sft",
+            Path("H:/elt_data/runs/qwen35_4b_side_lora_tool_sft_synthetic_gb/last.pt"),
+            Path("H:/elt_data/posttrain_synthetic/tool_use/v1_gb/benchmarks/gguf_tool_use_val_manifest.yaml"),
+            128,
+        ),
+        (
+            "code_grpo",
+            Path("H:/elt_data/runs/grpo_side_lora_code_synthetic_gb/last.pt"),
+            Path("H:/elt_data/posttrain_synthetic/code/v1_gb/benchmarks/gguf_code_val_manifest.yaml"),
+            192,
+        ),
+        (
+            "math_grpo",
+            Path("H:/elt_data/runs/grpo_side_lora_math_synthetic_gb/last.pt"),
+            Path("H:/elt_data/posttrain_synthetic/math/v1_gb/benchmarks/gguf_math_val_manifest.yaml"),
+            128,
+        ),
+        (
+            "tool_grpo",
+            Path("H:/elt_data/runs/grpo_side_lora_tool_synthetic_gb/last.pt"),
+            Path("H:/elt_data/posttrain_synthetic/tool_use/v1_gb/benchmarks/gguf_tool_use_val_manifest.yaml"),
+            128,
+        ),
+    ]
+    for name, ckpt, manifest, max_new_tokens in targets:
+        _run_side_lora_cv_eval(
+            ctx,
+            name=name,
+            ckpt=ckpt,
+            manifest=manifest,
+            max_new_tokens=max_new_tokens,
+        )
+
+
+def stage_lm_eval_harness_optional(ctx: PipelineContext) -> None:
+    out_dir = EVAL_ROOT / "lm_eval_harness"
+    status_path = out_dir / "status.json"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model_args = os.environ.get("ELT_LM_EVAL_MODEL_ARGS", "").strip()
+    model_name = os.environ.get("ELT_LM_EVAL_MODEL", "hf").strip() or "hf"
+    tasks = os.environ.get("ELT_LM_EVAL_TASKS", "hellaswag,arc_challenge,gsm8k").strip()
+    lm_eval = shutil.which("lm-eval") or shutil.which("lm_eval")
+    if not model_args:
+        _write_json(status_path, {
+            "state": "skipped",
+            "reason": "ELT_LM_EVAL_MODEL_ARGS is not set",
+            "example": (
+                "ELT_LM_EVAL_MODEL=hf; "
+                "ELT_LM_EVAL_MODEL_ARGS=pretrained=/path/to/hf/model,dtype=bfloat16"
+            ),
+            "tasks": tasks,
+        })
+        print(f"  skip lm-eval-harness: wrote {status_path}")
+        return
+    if lm_eval is None:
+        _write_json(status_path, {
+            "state": "skipped",
+            "reason": "lm-eval/lm_eval executable was not found",
+            "install_hint": 'pip install "lm_eval[hf]"',
+            "tasks": tasks,
+            "model": model_name,
+            "model_args": model_args,
+        })
+        print(f"  skip lm-eval-harness: wrote {status_path}")
+        return
+    cmd = [
+        lm_eval,
+        "run",
+        "--model", model_name,
+        "--model_args", model_args,
+        "--tasks", tasks,
+        "--output_path", str(out_dir),
+        "--log_samples",
+    ]
+    run_subprocess(cmd, dry_run=ctx.dry_run)
+    _write_json(status_path, {
+        "state": "complete",
+        "model": model_name,
+        "model_args": model_args,
+        "tasks": tasks,
+        "output_path": str(out_dir),
+    })
 
 
 FULL_STAGES: list[Stage] = [
@@ -1296,7 +1480,17 @@ SYNTHETIC_GB_SIDE_LORA_STAGES: list[Stage] = [
     Stage("00_prepare_synthetic_gb_lora_lanes", stage_prepare_synthetic_gb_lora_lanes),
     Stage("01_side_lora_synthetic_gb_sft", stage_side_lora_synthetic_gb_sft, long_running=True),
     Stage("02_export_synthetic_gb_side_lora_adapters", stage_export_synthetic_gb_side_lora_adapters),
-    Stage("03_eval_compare", stage_eval_compare),
+    Stage("03_synthetic_gb_side_lora_cv_eval", stage_synthetic_gb_side_lora_cv_eval, long_running=True),
+]
+
+SYNTHETIC_GB_SIDE_LORA_LONG_STAGES: list[Stage] = [
+    Stage("00_prepare_synthetic_gb_lora_lanes", stage_prepare_synthetic_gb_lora_lanes),
+    Stage("01_side_lora_synthetic_gb_sft", stage_side_lora_synthetic_gb_sft, long_running=True),
+    Stage("02_export_synthetic_gb_side_lora_adapters", stage_export_synthetic_gb_side_lora_adapters),
+    Stage("03_side_lora_synthetic_gb_grpo", stage_side_lora_synthetic_gb_grpo, long_running=True),
+    Stage("04_export_synthetic_gb_side_lora_grpo_adapters", stage_export_synthetic_gb_side_lora_grpo_adapters),
+    Stage("05_synthetic_gb_side_lora_cv_eval", stage_synthetic_gb_side_lora_cv_eval, long_running=True),
+    Stage("06_lm_eval_harness_optional", stage_lm_eval_harness_optional),
 ]
 
 STAGE_PROFILES: dict[str, list[Stage]] = {
@@ -1306,6 +1500,7 @@ STAGE_PROFILES: dict[str, list[Stage]] = {
     "side-lora": SIDE_LORA_STAGES,
     "v1-pretrain-posttrain": V1_PRETRAIN_POSTTRAIN_STAGES,
     "synthetic-gb-side-lora": SYNTHETIC_GB_SIDE_LORA_STAGES,
+    "synthetic-gb-side-lora-long": SYNTHETIC_GB_SIDE_LORA_LONG_STAGES,
     "synthetic-v1-pretrain-posttrain": SYNTHETIC_V1_PRETRAIN_POSTTRAIN_STAGES,
 }
 

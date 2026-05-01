@@ -195,7 +195,12 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
         )
     else:
         opt = configure_optimizer(model, cfg)
-    verifier = CompositeVerifier(task=cfg.grpo.task)
+    verifiers: dict[str, CompositeVerifier] = {}
+
+    def verifier_for(task: str) -> CompositeVerifier:
+        if task not in verifiers:
+            verifiers[task] = CompositeVerifier(task=task)
+        return verifiers[task]
 
     resume_step = 0
     if resume:
@@ -229,6 +234,7 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
         row = prompts[step % len(prompts)]
         prompt_text = row["prompt"]
         reference = row["reference"]
+        task = str(row.get("task") or cfg.grpo.task)
 
         prompt_ids = tok(
             prompt_text,
@@ -261,7 +267,7 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
             resp_tokens = full_ids[i, prompt_len : prompt_len + int(resp_lens[i])].tolist()
             response = tok.decode(resp_tokens, skip_special_tokens=True)
             responses.append(response)
-            breakdown = verifier.reward(
+            breakdown = verifier_for(task).reward(
                 prompt=prompt_text,
                 response=response,
                 reference=reference,
@@ -350,6 +356,7 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
                 reward_model_mean=rm_rewards.mean().item(),
                 correct_rate=r_correct.mean().item(),
                 format_rate=r_format.mean().item(),
+                prompt_task=task,
             )
 
         if cfg.save_every and step > 0 and step % cfg.save_every == 0:

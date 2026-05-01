@@ -115,7 +115,23 @@ def test_synthetic_gb_side_lora_profile_prepares_then_trains_adapters() -> None:
         "00_prepare_synthetic_gb_lora_lanes",
         "01_side_lora_synthetic_gb_sft",
         "02_export_synthetic_gb_side_lora_adapters",
-        "03_eval_compare",
+        "03_synthetic_gb_side_lora_cv_eval",
+    ]
+
+
+def test_synthetic_gb_side_lora_long_profile_runs_sft_grpo_and_cv_eval() -> None:
+    mod = _load_pipeline_module()
+
+    names = [stage.name for stage in mod.STAGE_PROFILES["synthetic-gb-side-lora-long"]]
+
+    assert names == [
+        "00_prepare_synthetic_gb_lora_lanes",
+        "01_side_lora_synthetic_gb_sft",
+        "02_export_synthetic_gb_side_lora_adapters",
+        "03_side_lora_synthetic_gb_grpo",
+        "04_export_synthetic_gb_side_lora_grpo_adapters",
+        "05_synthetic_gb_side_lora_cv_eval",
+        "06_lm_eval_harness_optional",
     ]
 
 
@@ -661,6 +677,9 @@ def test_learning_configs_keep_five_minute_three_slot_rolling() -> None:
         "configs/qwen35_4b_side_lora_math_sft_synthetic_gb.yaml",
         "configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml",
         "configs/qwen35_4b_side_lora_tool_sft_synthetic_gb.yaml",
+        "configs/grpo_side_lora_code_synthetic_gb.yaml",
+        "configs/grpo_side_lora_math_synthetic_gb.yaml",
+        "configs/grpo_side_lora_tool_synthetic_gb.yaml",
     ]
     for rel in configs:
         payload = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
@@ -739,11 +758,17 @@ def test_side_lora_configs_avoid_bitsandbytes_and_nvme_state() -> None:
         "configs/qwen35_4b_side_lora_math_sft_synthetic_gb.yaml",
         "configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml",
         "configs/qwen35_4b_side_lora_tool_sft_synthetic_gb.yaml",
+        "configs/grpo_side_lora_code_synthetic_gb.yaml",
+        "configs/grpo_side_lora_math_synthetic_gb.yaml",
+        "configs/grpo_side_lora_tool_synthetic_gb.yaml",
     ]:
         payload = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
         assert payload["optim"]["kind"] == "adamw", rel
         assert payload["model"]["hf_trainable_mode"] == "lora", rel
         assert payload["model"]["hf_adapter_base_ckpt"].endswith("/last.pt"), rel
+        if "grpo_side_lora" in rel:
+            assert payload["grpo"]["kl_beta"] > 0, rel
+            assert payload["grpo"]["rollout_L"] == 1, rel
 
 
 def test_huihui_35b_distill_config_is_oom_conservative() -> None:
