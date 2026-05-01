@@ -537,6 +537,80 @@ def _math_examples(count: int) -> Iterable[SyntheticExample]:
             str(answer),
         )
 
+    def matrix_determinant(i: int) -> tuple[str, str, str, str]:
+        a = 1 + (i % 5)
+        b = 2 + (i % 7)
+        c = 3 + ((i * 2) % 5)
+        d = 4 + ((i * 3) % 7)
+        answer = a * d - b * c
+        return (
+            "matrix_determinant",
+            f"Compute the determinant of the 2 by 2 matrix [[{a}, {b}], [{c}, {d}]]. Synthetic seed id {i}.",
+            f"For a 2 by 2 matrix, det = ad - bc = {a}*{d} - {b}*{c} = {answer}.",
+            str(answer),
+        )
+
+    def polynomial_derivative(i: int) -> tuple[str, str, str, str]:
+        a = 2 + (i % 6)
+        b = 3 + ((i * 2) % 7)
+        c = 5 + ((i * 3) % 8)
+        x = 1 + (i % 5)
+        answer = 3 * a * x * x + 2 * b * x + c
+        return (
+            "polynomial_derivative",
+            f"Let f(x) = {a}x^3 + {b}x^2 + {c}x + 7. Compute f'({x}). Synthetic seed id {i}.",
+            f"The derivative is f'(x) = {3*a}x^2 + {2*b}x + {c}. Evaluating at {x} gives {answer}.",
+            str(answer),
+        )
+
+    def definite_integral(i: int) -> tuple[str, str, str, str]:
+        a = 1 + (i % 5)
+        b = 2 + ((i * 2) % 5)
+        n = 2 + (i % 4)
+        numerator = a * n ** 3 + 3 * b * n
+        return (
+            "definite_integral",
+            f"Compute the exact value of integral from 0 to {n} of ({3*a}x^2 + {b}) dx. Synthetic seed id {i}.",
+            f"An antiderivative is {a}x^3 + {b}x. Evaluating from 0 to {n} gives {a}*{n}^3 + {b}*{n} = {numerator}.",
+            str(numerator),
+        )
+
+    def conditional_probability(i: int) -> tuple[str, str, str, str]:
+        total = 40 + (i % 20)
+        a_count = 10 + (i % 8)
+        b_count = 12 + ((i * 3) % 9)
+        both = 3 + (i % min(a_count, b_count, 7))
+        return (
+            "conditional_probability",
+            f"In a cohort of {total}, event A occurs in {a_count}, event B occurs in {b_count}, and both occur in {both}. Compute P(A | B). Synthetic seed id {i}.",
+            f"Conditional probability P(A|B) is count(A and B) divided by count(B), so the exact value is {both}/{b_count}.",
+            f"{both}/{b_count}",
+        )
+
+    def geometric_recurrence(i: int) -> tuple[str, str, str, str]:
+        first = 2 + (i % 5)
+        ratio = 2 + ((i * 3) % 4)
+        n = 4 + (i % 5)
+        answer = first * ratio ** (n - 1)
+        return (
+            "geometric_recurrence",
+            f"A recurrence has a_1 = {first} and a_n = {ratio} a_(n-1). Compute a_{n}. Synthetic seed id {i}.",
+            f"This is a geometric sequence, so a_{n} = {first} * {ratio}^({n}-1) = {answer}.",
+            str(answer),
+        )
+
+    def inclusion_exclusion(i: int) -> tuple[str, str, str, str]:
+        a_count = 15 + (i % 10)
+        b_count = 14 + ((i * 2) % 9)
+        both = 4 + (i % 6)
+        answer = a_count + b_count - both
+        return (
+            "inclusion_exclusion",
+            f"A finite set has |A|={a_count}, |B|={b_count}, and |A intersection B|={both}. Compute |A union B|. Synthetic seed id {i}.",
+            f"By inclusion-exclusion, |A union B| = |A| + |B| - |A intersection B| = {a_count}+{b_count}-{both} = {answer}.",
+            str(answer),
+        )
+
     builders = (
         linear,
         rectangle,
@@ -547,6 +621,12 @@ def _math_examples(count: int) -> Iterable[SyntheticExample]:
         bayes_binary,
         integer_quadratic_root,
         vector_dot,
+        matrix_determinant,
+        polynomial_derivative,
+        definite_integral,
+        conditional_probability,
+        geometric_recurrence,
+        inclusion_exclusion,
     )
     for i in range(count):
         name, question, reasoning, answer = builders[i % len(builders)](i)
@@ -695,6 +775,94 @@ def _stem_examples(count: int) -> Iterable[SyntheticExample]:
                 "Removing randomization and comparing arbitrary groups",
             ],
             "Larger sample size usually lowers uncertainty and increases the chance of detecting a true effect.",
+        ),
+        (
+            "pharmacokinetics_half_life",
+            "For a first-order drug elimination process, what happens to plasma concentration after one half-life?",
+            "It falls to one half because first-order half-life is the time for 50 percent reduction",
+            [
+                "It becomes zero because all drug is eliminated after one half-life",
+                "It doubles because elimination accelerates concentration",
+                "It remains unchanged because half-life only applies to radioactive atoms",
+            ],
+            "First-order elimination produces a constant fractional decrease per half-life.",
+        ),
+        (
+            "control_feedback",
+            "In a stable negative-feedback control loop, what is the primary effect of increasing proportional gain too far?",
+            "It can increase overshoot or oscillation because the controller reacts too aggressively",
+            [
+                "It always removes overshoot because larger gain is unconditionally stabilizing",
+                "It disables feedback and makes the system open-loop",
+                "It changes the sensor units but cannot affect dynamics",
+            ],
+            "High proportional gain can reduce steady-state error but may reduce damping and cause overshoot.",
+        ),
+        (
+            "signal_aliasing",
+            "A sinusoid is sampled below twice its frequency. Which failure mode is expected?",
+            "Aliasing because the sampling rate violates the Nyquist criterion",
+            [
+                "Perfect reconstruction because all sinusoids need only one sample",
+                "Increased bit depth because sampling rate changes amplitude quantization",
+                "Thermal noise cancellation because slower sampling averages noise exactly",
+            ],
+            "The Nyquist criterion requires sampling at more than twice the highest frequency to avoid aliasing.",
+        ),
+        (
+            "genetics_autosomal_recessive",
+            "Two heterozygous carriers for an autosomal recessive condition have a child. What is the probability the child is affected?",
+            "One quarter because only the homozygous recessive genotype is affected",
+            [
+                "One half because each parent has one recessive allele",
+                "Three quarters because most children inherit at least one variant",
+                "Zero because carriers cannot have affected children",
+            ],
+            "A carrier-by-carrier cross gives genotypes AA, Aa, Aa, aa, so affected probability is 1/4.",
+        ),
+        (
+            "renal_clearance",
+            "If a substance is freely filtered and neither secreted nor reabsorbed, what does its renal clearance approximate?",
+            "Glomerular filtration rate because excretion equals filtered load",
+            [
+                "Renal plasma flow because every plasma molecule is cleared",
+                "Zero because filtered substances are never excreted",
+                "Tubular maximum because secretion is saturated",
+            ],
+            "For a freely filtered substance with no reabsorption or secretion, clearance tracks GFR.",
+        ),
+        (
+            "machine_learning_calibration",
+            "A classifier assigns probability 0.8 to many cases, but only 60 percent are actually positive. What issue is present?",
+            "Miscalibration because predicted probabilities overstate observed frequencies",
+            [
+                "Perfect calibration because 0.8 is greater than 0.6",
+                "Class imbalance only, which cannot affect probability estimates",
+                "Data leakage, which is proven by any nonzero error",
+            ],
+            "Calibration compares predicted probabilities with empirical outcome frequencies.",
+        ),
+        (
+            "thermodynamics_adiabatic",
+            "In an adiabatic compression of an ideal gas with no heat exchange, what generally happens to temperature?",
+            "It increases because work done on the gas raises internal energy",
+            [
+                "It must decrease because volume decreases",
+                "It stays fixed because adiabatic means isothermal",
+                "It becomes zero because heat transfer is zero",
+            ],
+            "With no heat exchange, compression work increases internal energy and therefore temperature for an ideal gas.",
+        ),
+        (
+            "medical_test_likelihood_ratio",
+            "A diagnostic test has a positive likelihood ratio greater than 1. What does a positive result do to disease odds?",
+            "It increases post-test odds because LR+ multiplies pre-test odds by a factor above one",
+            [
+                "It decreases odds because all tests introduce false positives",
+                "It leaves odds unchanged because likelihood ratios do not affect Bayes updates",
+                "It proves disease with probability exactly one",
+            ],
+            "Bayesian updating multiplies prior odds by the likelihood ratio.",
         ),
     ]
     for i in range(count):

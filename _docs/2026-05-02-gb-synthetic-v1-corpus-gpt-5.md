@@ -54,6 +54,25 @@ All lanes reported `schema_valid_rate=1.0`, `unique_text_ratio=1.0`,
 `exact_duplicate_count=0`, and sampled verifier pass `1.0`. Math rejected
 `17` generated zero-answer cases via the existing `fallback_zero_answer` gate.
 
+# Math/STEM Dedicated GB Results
+
+After the mixed GB run, dedicated higher-volume math and STEM bundles were
+generated as separate artifacts:
+
+- `H:/elt_data/synthetic_v1_math_gb`: `1,073,742,145` bytes, `940,182`
+  accepted records, sampled verifier pass `1.0`, exact duplicates `0`.
+- `H:/elt_data/synthetic_v1_stem_gb`: `1,073,742,371` bytes, `588,938`
+  accepted records, sampled verifier pass `1.0`, exact duplicates `0`.
+
+Math now includes algebra, exact arithmetic, probability, Bayes, quadratic
+roots, vector dot products, matrix determinants, polynomial derivatives,
+definite integrals, conditional probability, geometric recurrences, and
+inclusion-exclusion. STEM now includes physics, chemistry, statistics,
+medicine, pharmacokinetics, control systems, signal aliasing, genetics, renal
+clearance, machine-learning calibration, thermodynamics, and diagnostic
+likelihood-ratio reasoning. STEM answer distribution remained balanced:
+`A=147,235`, `B=147,235`, `C=147,234`, `D=147,234`.
+
 # Next Session Notes
 
 - If `H:/elt_data/pipeline_state/01_build_synthetic_v1_seed.done` exists from
