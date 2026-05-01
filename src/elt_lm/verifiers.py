@@ -76,7 +76,10 @@ def _unwrap_code_or_json_block(response: str) -> str:
 
 
 def canonical_task_answer(task: str, response: str) -> tuple[float, str]:
-    if task in {"gsm8k", "exact_match", "exact_math", "mcq_reasoning"}:
+    if task in {"gsm8k", "exact_math", "mcq_reasoning"}:
+        fmt, answer = format_score(response)
+        return fmt, answer
+    if task == "exact_match":
         fmt, answer = format_score(response)
         if fmt > 0:
             return fmt, answer

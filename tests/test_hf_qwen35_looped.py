@@ -18,6 +18,7 @@ from elt_lm.hf_qwen35_looped import HFQwen35LoopedLM, LoRALinear, patch_fla_wind
 from elt_lm.ilsd import ILSDLossFn
 from elt_lm.model import build_model
 from elt_lm.train import _build_ckpt_state
+from elt_lm.train_grpo import load_policy_checkpoint
 
 
 def _make_tiny_qwen_dir(path: Path) -> Qwen3_5ForCausalLM:
@@ -202,6 +203,35 @@ def test_hf_qwen35_looped_lora_adapter_only_checkpoint_roundtrip(tmp_path: Path)
     restored_lora = next(p for name, p in restored.named_parameters() if ".lora_B" in name)
     assert torch.allclose(restored_lora, torch.full_like(restored_lora, 0.125))
     assert ckpt.stat().st_size < base_ckpt.stat().st_size
+
+
+def test_grpo_policy_loader_accepts_side_lora_adapter_checkpoint(tmp_path: Path) -> None:
+    _make_tiny_qwen_dir(tmp_path / "src")
+    base_ckpt, _ = bootstrap_qwen35_elt_checkpoint(
+        hf_model_path=str(tmp_path / "src"),
+        out_path=tmp_path / "base.pt",
+        tokenizer_path="H:/Qwen3.5-9B-official-hf",
+    )
+    cfg = _make_hf_loop_cfg(tmp_path / "src", L_max=1, trainable_mode="lora", lora_rank=4)
+    cfg.hf_save_adapter_only = True
+    cfg.hf_adapter_base_ckpt = str(base_ckpt)
+
+    model = build_model(cfg)
+    assert isinstance(model, HFQwen35LoopedLM)
+    model.load_state_dict(torch.load(base_ckpt, map_location="cpu", weights_only=False)["model"])
+    first_lora = next(p for name, p in model.named_parameters() if ".lora_B" in name)
+    first_lora.data.fill_(0.25)
+    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=1e-3)
+    ckpt = tmp_path / "adapter_policy.pt"
+    torch.save(_build_ckpt_state(model, opt, TrainConfig(model=cfg), step=11), ckpt)
+
+    restored = build_model(cfg)
+    assert isinstance(restored, HFQwen35LoopedLM)
+    step = load_policy_checkpoint(ckpt, restored)
+
+    restored_lora = next(p for name, p in restored.named_parameters() if ".lora_B" in name)
+    assert step == 11
+    assert torch.allclose(restored_lora, torch.full_like(restored_lora, 0.25))
 
 
 def test_export_lora_adapter_writes_small_artifact(tmp_path: Path) -> None:

@@ -15,7 +15,7 @@ from torch import Tensor
 
 from elt_lm.config import TrainConfig, load_train_config
 from elt_lm.grpo import GRPOOutput, group_advantage, grpo_loss
-from elt_lm.model import ELTLanguageModel
+from elt_lm.model import build_model
 from elt_lm.posttrain_data import render_chat_text
 from elt_lm.reward_model import ELTRewardModel, score_text_batch
 from elt_lm.telemetry import make_writer
@@ -54,9 +54,32 @@ def load_tokenizer(path: str):
     return tok
 
 
+def load_policy_checkpoint(path: str | Path, model: torch.nn.Module) -> int:
+    """Load the GRPO initial policy without restoring optimizer/RNG state.
+
+    GRPO owns its optimizer separately from SFT. The initial checkpoint may be a
+    full native ELT checkpoint or a side-branch LoRA adapter-only checkpoint.
+    """
+
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    if (
+        isinstance(state, dict)
+        and state.get("adapter_only")
+        and hasattr(model, "load_adapter_checkpoint_state")
+    ):
+        model.load_adapter_checkpoint_state(state)  # type: ignore[attr-defined]
+    else:
+        model.load_state_dict(
+            state["model"] if isinstance(state, dict) and "model" in state else state
+        )
+        if hasattr(model, "remember_adapter_base_checkpoint"):
+            model.remember_adapter_base_checkpoint(path)  # type: ignore[attr-defined]
+    return int(state.get("step", 0)) if isinstance(state, dict) else 0
+
+
 @torch.no_grad()
 def rollout_group(
-    model: ELTLanguageModel,
+    model: torch.nn.Module,
     prompt_ids: Tensor,
     group_size: int,
     L: int,
@@ -141,9 +164,8 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
         prompts = prompts[: cfg.grpo.prompt_budget]
     print(f"loaded {len(prompts):,} prompts from {cfg.grpo.prompts_file}")
 
-    state = torch.load(cfg.grpo.init_ckpt, map_location="cpu", weights_only=False)
-    model = ELTLanguageModel(cfg.model).to(device=device, dtype=dtype)
-    model.load_state_dict(state["model"] if "model" in state else state)
+    model = build_model(cfg.model).to(device=device, dtype=dtype)
+    init_step = load_policy_checkpoint(cfg.grpo.init_ckpt, model)
 
     ref = copy.deepcopy(model).to(device=device, dtype=dtype)
     for p in ref.parameters():
@@ -158,7 +180,12 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
     reward_model = _load_reward_model(cfg, device=device, dtype=dtype)
 
     model.train()
-    print(f"policy params: {model.num_parameters()/1e6:.1f}M · ref/old frozen")
+    if not hasattr(model, "num_parameters"):
+        raise TypeError(f"model {type(model)!r} does not expose num_parameters()")
+    print(
+        f"policy params: {model.num_parameters()/1e6:.1f}M · "
+        f"init_step={init_step} · ref/old frozen"
+    )
 
     offload_store = None
     if cfg.optim.kind == "nvme_adamw":
