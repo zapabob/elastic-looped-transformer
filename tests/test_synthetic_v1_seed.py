@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from elt_lm.synthetic_v1_seed import build_synthetic_seed_bundle, generate_lane_examples
+from elt_lm.synthetic_v1_seed import (
+    build_synthetic_seed_bundle,
+    build_synthetic_seed_bundle_to_target,
+    generate_lane_examples,
+)
 
 
 def test_generate_lane_examples_are_distinct() -> None:
@@ -53,3 +57,23 @@ def test_synthetic_stem_seed_balances_answers(tmp_path: Path) -> None:
     assert sum(distribution.values()) == 8
     assert set(distribution) == {"A", "B", "C", "D"}
     assert max(distribution.values()) - min(distribution.values()) <= 1
+
+
+def test_build_synthetic_seed_bundle_to_target_streams_large_shape(tmp_path: Path) -> None:
+    summary = build_synthetic_seed_bundle_to_target(
+        output_root=tmp_path,
+        target_bytes=80_000,
+        val_ratio=0.125,
+        lanes=("code", "math", "stem_reasoning", "tool_use"),
+        validation_sample_per_lane=4,
+    )
+
+    assert summary["total_bytes"] >= 80_000
+    assert summary["total_records"] > 20
+    for lane, lane_summary in summary["lanes"].items():
+        assert (tmp_path / lane / "distill_train.jsonl").exists()
+        assert (tmp_path / lane / "distill_val.jsonl").exists()
+        assert lane_summary["total_bytes"] > 0
+        assert lane_summary["sample_verifier_pass_rate"] == 1.0
+        assert lane_summary["unique_text_ratio"] == 1.0
+        assert lane_summary["exact_duplicate_count"] == 0

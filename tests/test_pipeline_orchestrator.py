@@ -83,12 +83,26 @@ def test_v1_pretrain_posttrain_profile_fetches_hf_then_quality_distill() -> None
 
     assert names == [
         "00_fetch_hf_dataset_mix_v1",
-        "01_hauhaucs_v1_multilane_distill",
-        "02_prepare_hauhaucs_v1_lanes",
-        "03_native_clean_replay_pretrain",
-        "04_hauhaucs_v1_lane_sft",
-        "05_kl_grpo_v1",
-        "06_eval_compare",
+        "01_build_synthetic_v1_seed",
+        "02_hauhaucs_v1_multilane_distill",
+        "03_prepare_hauhaucs_v1_lanes",
+        "04_native_clean_replay_pretrain",
+        "05_hauhaucs_v1_lane_sft",
+        "06_kl_grpo_v1",
+        "07_eval_compare",
+    ]
+
+
+def test_synthetic_v1_pretrain_posttrain_profile_skips_teacher_distill() -> None:
+    mod = _load_pipeline_module()
+
+    names = [stage.name for stage in mod.STAGE_PROFILES["synthetic-v1-pretrain-posttrain"]]
+
+    assert names == [
+        "00_fetch_hf_dataset_mix_v1",
+        "01_build_synthetic_v1_seed",
+        "02_native_clean_replay_pretrain",
+        "03_eval_compare",
     ]
 
 

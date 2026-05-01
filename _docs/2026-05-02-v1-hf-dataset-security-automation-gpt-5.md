@@ -105,6 +105,11 @@ before it can proceed.
   `distill_train.jsonl` / `distill_val.jsonl` bundles for code, math, STEM, and
   tool-use. These records are verifier-backed and intended as stable seed data
   before or alongside teacher-generated v1 distillation.
+- The synthetic builder now has a streaming target-size mode for GB-class
+  generation: `--target-gb 1` writes large lane JSONL files directly to H:,
+  tracks exact duplicate hashes, and full-verifies a configurable sample per
+  lane. A new `synthetic-v1-pretrain-posttrain` pipeline profile skips teacher
+  distillation and starts from HF dataset sampling plus the synthetic v1 seed.
 
 ## Next session notes
 

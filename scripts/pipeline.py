@@ -50,6 +50,7 @@ HUIHUI_DETECTION_PREP_ROOT = Path("H:/elt_data/posttrain/detection/huihui_qwen36
 QWEN35_BOOTSTRAP_CKPT = Path("H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt")
 HF_DATASET_MIX_CONFIG = "configs/hf_dataset_mix_v1.yaml"
 HF_DATASET_MIX_ROOT = Path("H:/elt_data/hf_dataset_mix_v1")
+SYNTHETIC_V1_SEED_ROOT = Path("H:/elt_data/synthetic_v1_seed_large")
 HAUHAUCS_V1_QUEUE_CONFIG = "configs/gguf_distill_qwen35_hauhaucs_multilane_v1_queue.yaml"
 # Use the 8.3 short path because Python's Windows subprocess quoting can pass
 # quoted .bat paths through to cmd.exe as literal escaped quotes.
@@ -698,6 +699,32 @@ def stage_fetch_hf_dataset_mix_v1(ctx: PipelineContext) -> None:
     run_subprocess(cmd, dry_run=ctx.dry_run)
 
 
+def stage_build_synthetic_v1_seed(ctx: PipelineContext) -> None:
+    summary = SYNTHETIC_V1_SEED_ROOT / "summary.json"
+    if file_nonempty(summary):
+        try:
+            payload = json.loads(summary.read_text(encoding="utf-8"))
+            lane_summaries = payload.get("lanes", {})
+            if all(
+                int(lane_summaries.get(lane, {}).get("total_records", 0) or 0) >= 512
+                and float(lane_summaries.get(lane, {}).get("verifier_pass_rate", 0.0) or 0.0) >= 1.0
+                and float(lane_summaries.get(lane, {}).get("unique_text_ratio", 0.0) or 0.0) >= 1.0
+                for lane in ("code", "math", "stem_reasoning", "tool_use")
+            ):
+                print(f"  skip existing synthetic v1 seed summary: {summary}")
+                return
+        except Exception:
+            pass
+    cmd = [
+        "uv", "run", "--no-sync", "python", "-m", "elt_lm.synthetic_v1_seed",
+        "--output-root", str(SYNTHETIC_V1_SEED_ROOT),
+        "--target-gb", "1",
+        "--validation-sample-per-lane", "512",
+        "--val-ratio", "0.125",
+    ]
+    run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
 def stage_hauhaucs_v1_multilane_distill(ctx: PipelineContext) -> None:
     cmd = [
         "uv", "run", "--no-sync", "elt-gguf-distill-queue",
@@ -1160,12 +1187,20 @@ REPLAY_REFRESH_STAGES: list[Stage] = [
 
 V1_PRETRAIN_POSTTRAIN_STAGES: list[Stage] = [
     Stage("00_fetch_hf_dataset_mix_v1", stage_fetch_hf_dataset_mix_v1),
-    Stage("01_hauhaucs_v1_multilane_distill", stage_hauhaucs_v1_multilane_distill, long_running=True),
-    Stage("02_prepare_hauhaucs_v1_lanes", stage_prepare_hauhaucs_v1_lanes),
-    Stage("03_native_clean_replay_pretrain", stage_native_clean_replay_pretrain, long_running=True),
-    Stage("04_hauhaucs_v1_lane_sft", stage_hauhaucs_v1_lane_sft, long_running=True),
-    Stage("05_kl_grpo_v1", stage_kl_grpo_v1, long_running=True),
-    Stage("06_eval_compare", stage_eval_compare),
+    Stage("01_build_synthetic_v1_seed", stage_build_synthetic_v1_seed),
+    Stage("02_hauhaucs_v1_multilane_distill", stage_hauhaucs_v1_multilane_distill, long_running=True),
+    Stage("03_prepare_hauhaucs_v1_lanes", stage_prepare_hauhaucs_v1_lanes),
+    Stage("04_native_clean_replay_pretrain", stage_native_clean_replay_pretrain, long_running=True),
+    Stage("05_hauhaucs_v1_lane_sft", stage_hauhaucs_v1_lane_sft, long_running=True),
+    Stage("06_kl_grpo_v1", stage_kl_grpo_v1, long_running=True),
+    Stage("07_eval_compare", stage_eval_compare),
+]
+
+SYNTHETIC_V1_PRETRAIN_POSTTRAIN_STAGES: list[Stage] = [
+    Stage("00_fetch_hf_dataset_mix_v1", stage_fetch_hf_dataset_mix_v1),
+    Stage("01_build_synthetic_v1_seed", stage_build_synthetic_v1_seed),
+    Stage("02_native_clean_replay_pretrain", stage_native_clean_replay_pretrain, long_running=True),
+    Stage("03_eval_compare", stage_eval_compare),
 ]
 
 STAGE_PROFILES: dict[str, list[Stage]] = {
@@ -1174,6 +1209,7 @@ STAGE_PROFILES: dict[str, list[Stage]] = {
     "replay-refresh": REPLAY_REFRESH_STAGES,
     "side-lora": SIDE_LORA_STAGES,
     "v1-pretrain-posttrain": V1_PRETRAIN_POSTTRAIN_STAGES,
+    "synthetic-v1-pretrain-posttrain": SYNTHETIC_V1_PRETRAIN_POSTTRAIN_STAGES,
 }
 
 # Backward-compatible public name used by tests and old scripts.
