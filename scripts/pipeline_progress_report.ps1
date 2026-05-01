@@ -78,6 +78,35 @@ function Get-LatestMetricsFile {
         Select-Object -First 1
 }
 
+function Get-LatestDistillStatus {
+    param([string]$Root = "H:\elt_data\gguf_distill")
+    if (-not (Test-Path -LiteralPath $Root)) {
+        return $null
+    }
+    $file = Get-ChildItem -LiteralPath $Root -Filter "status.json" -Recurse -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if ($null -eq $file) {
+        return $null
+    }
+    $payload = Read-JsonObject $file.FullName
+    if ($null -eq $payload) {
+        return $null
+    }
+    return [ordered]@{
+        path = $file.FullName
+        age_sec = [math]::Round(((Get-Date) - $file.LastWriteTime).TotalSeconds, 1)
+        state = $payload.state
+        stage = $payload.current_stage
+        processed_tasks = $payload.processed_tasks
+        total_tasks = $payload.total_tasks
+        progress_pct = $payload.progress_pct
+        eta_sec = $payload.eta_sec
+        error_count = $payload.error_count
+        last_error = $payload.last_error
+    }
+}
+
 function Get-GpuSnapshot {
     try {
         $line = & nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw --format=csv,noheader,nounits 2>$null | Select-Object -First 1
@@ -241,6 +270,7 @@ if ($metricsFile -ne $null) {
 
 $disk = Get-DiskSnapshot
 $gpu = Get-GpuSnapshot
+$distill = Get-LatestDistillStatus
 $now = Get-Date
 $summary = [ordered]@{
     generated_at = $now.ToString("o")
@@ -251,6 +281,7 @@ $summary = [ordered]@{
     latest_event = $latestEvent
     checkpoint = $checkpoint
     eta = $eta
+    distill = $distill
     gpu = $gpu
     disk = $disk
 }
@@ -271,6 +302,7 @@ $heartbeatSummary = [ordered]@{
     step = if ($latestStep) { $latestStep.step } else { $null }
     loss = if ($latestStep) { $latestStep.loss } else { $null }
     eta = $eta
+    distill = $distill
     checkpoint = $checkpoint
     gpu = $gpu
     disk = $disk
@@ -284,6 +316,7 @@ $gpuText = if ($gpu) { "$($gpu.memory_used_mb)/$($gpu.memory_total_mb) MB, util 
 $diskText = ($disk | ForEach-Object { "$($_.name): $($_.free_gb) GB free" }) -join ", "
 $ckptText = if ($checkpoint) { "$($checkpoint.age_sec) sec old, $($checkpoint.bytes) bytes" } else { "none" }
 $etaText = if ($eta) { "$($eta.eta_text), estimated complete at $($eta.estimated_completion_time), progress $($eta.progress_pct)%" } else { "unknown" }
+$distillText = if ($distill) { "$($distill.state)/$($distill.stage), $($distill.processed_tasks)/$($distill.total_tasks), progress $($distill.progress_pct)%, eta_sec $($distill.eta_sec), errors $($distill.error_count)" } else { "none" }
 
 @"
 # ELT pipeline progress
@@ -293,6 +326,7 @@ $etaText = if ($eta) { "$($eta.eta_text), estimated complete at $($eta.estimated
 - stage: $stage
 - latest_step: $stepText
 - eta_current_run: $etaText
+- latest_distill: $distillText
 - metrics_age_sec: $metricsAgeSec
 - checkpoint: $ckptText
 - gpu: $gpuText

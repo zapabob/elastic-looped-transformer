@@ -1,0 +1,25 @@
+output_root: H:/elt_data/gguf_distill/qwen35_hauhaucs_multilane_v1_queue
+poll_interval_sec: 30
+continue_on_failure: false
+wait_for_existing: true
+
+stages:
+  - name: code_v1
+    config: gguf_distill_code_qwen35_hauhaucs_v1.yaml
+    resume: true
+    skip_completed: true
+
+  - name: math_v1
+    config: gguf_distill_math_qwen35_hauhaucs_v1.yaml
+    resume: true
+    skip_completed: true
+
+  - name: stem_reasoning_v1
+    config: gguf_distill_stem_qwen35_hauhaucs_v1.yaml
+    resume: true
+    skip_completed: true
+
+  - name: tool_use_v1
+    config: gguf_distill_tool_qwen35_hauhaucs_v1.yaml
+    resume: true
+    skip_completed: true

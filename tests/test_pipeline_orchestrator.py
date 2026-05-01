@@ -76,6 +76,40 @@ def test_replay_refresh_profile_runs_clean_replay_then_mixed_sft_and_grpo() -> N
     ]
 
 
+def test_v1_pretrain_posttrain_profile_fetches_hf_then_quality_distill() -> None:
+    mod = _load_pipeline_module()
+
+    names = [stage.name for stage in mod.STAGE_PROFILES["v1-pretrain-posttrain"]]
+
+    assert names == [
+        "00_fetch_hf_dataset_mix_v1",
+        "01_hauhaucs_v1_multilane_distill",
+        "02_prepare_hauhaucs_v1_lanes",
+        "03_native_clean_replay_pretrain",
+        "04_hauhaucs_v1_lane_sft",
+        "05_kl_grpo_v1",
+        "06_eval_compare",
+    ]
+
+
+def test_v1_queue_config_points_only_to_v1_lane_configs() -> None:
+    root = Path(__file__).resolve().parents[1]
+    payload = yaml.safe_load(
+        (root / "configs/gguf_distill_qwen35_hauhaucs_multilane_v1_queue.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    configs = [stage["config"] for stage in payload["stages"]]
+
+    assert configs == [
+        "gguf_distill_code_qwen35_hauhaucs_v1.yaml",
+        "gguf_distill_math_qwen35_hauhaucs_v1.yaml",
+        "gguf_distill_stem_qwen35_hauhaucs_v1.yaml",
+        "gguf_distill_tool_qwen35_hauhaucs_v1.yaml",
+    ]
+    assert all("_v1.yaml" in item for item in configs)
+
+
 def test_build_training_command_adds_resume_when_last_exists(tmp_path: Path) -> None:
     mod = _load_pipeline_module()
     run_dir = tmp_path / "run"
@@ -518,6 +552,13 @@ def test_learning_configs_keep_five_minute_three_slot_rolling() -> None:
         "configs/grpo_code_qwen35_hauhaucs.yaml",
         "configs/grpo_math_qwen35_hauhaucs.yaml",
         "configs/grpo_tool_qwen35_hauhaucs.yaml",
+        "configs/posttrain_code_sft_qwen35_hauhaucs_v1.yaml",
+        "configs/posttrain_math_sft_qwen35_hauhaucs_v1.yaml",
+        "configs/posttrain_stem_sft_qwen35_hauhaucs_v1.yaml",
+        "configs/posttrain_tool_sft_qwen35_hauhaucs_v1.yaml",
+        "configs/grpo_code_qwen35_hauhaucs_v1.yaml",
+        "configs/grpo_math_qwen35_hauhaucs_v1.yaml",
+        "configs/grpo_tool_qwen35_hauhaucs_v1.yaml",
         "configs/qwen35_4b_side_lora_code_sft.yaml",
         "configs/qwen35_4b_side_lora_math_sft.yaml",
         "configs/qwen35_4b_side_lora_stem_sft.yaml",
@@ -546,6 +587,13 @@ def test_pipeline_learning_configs_avoid_bitsandbytes_on_windows() -> None:
         "configs/grpo_code_qwen35_hauhaucs.yaml",
         "configs/grpo_math_qwen35_hauhaucs.yaml",
         "configs/grpo_tool_qwen35_hauhaucs.yaml",
+        "configs/posttrain_code_sft_qwen35_hauhaucs_v1.yaml",
+        "configs/posttrain_math_sft_qwen35_hauhaucs_v1.yaml",
+        "configs/posttrain_stem_sft_qwen35_hauhaucs_v1.yaml",
+        "configs/posttrain_tool_sft_qwen35_hauhaucs_v1.yaml",
+        "configs/grpo_code_qwen35_hauhaucs_v1.yaml",
+        "configs/grpo_math_qwen35_hauhaucs_v1.yaml",
+        "configs/grpo_tool_qwen35_hauhaucs_v1.yaml",
     ]
     for rel in configs:
         payload = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
@@ -564,6 +612,13 @@ def test_posttrain_grpo_profile_uses_bounded_phase1_steps() -> None:
         "configs/grpo_code_qwen35_hauhaucs.yaml": 64,
         "configs/grpo_math_qwen35_hauhaucs.yaml": 64,
         "configs/grpo_tool_qwen35_hauhaucs.yaml": 64,
+        "configs/posttrain_code_sft_qwen35_hauhaucs_v1.yaml": 96,
+        "configs/posttrain_math_sft_qwen35_hauhaucs_v1.yaml": 96,
+        "configs/posttrain_stem_sft_qwen35_hauhaucs_v1.yaml": 80,
+        "configs/posttrain_tool_sft_qwen35_hauhaucs_v1.yaml": 80,
+        "configs/grpo_code_qwen35_hauhaucs_v1.yaml": 64,
+        "configs/grpo_math_qwen35_hauhaucs_v1.yaml": 64,
+        "configs/grpo_tool_qwen35_hauhaucs_v1.yaml": 64,
     }
     for rel, max_steps in expected_max_steps.items():
         payload = yaml.safe_load((root / rel).read_text(encoding="utf-8"))

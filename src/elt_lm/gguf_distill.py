@@ -1469,6 +1469,106 @@ def _expected_stem_choice(task: DistillTask) -> str:
     return "ABCD"[task.variant_index % 4]
 
 
+_V1_DIVERSITY_AXES: dict[str, dict[str, list[str]]] = {
+    "code": {
+        "difficulty": [
+            "medium: one public API plus normal and edge cases",
+            "hard: two interacting helpers with explicit error behavior",
+            "hard: parse/transform nested data with stable ordering",
+            "expert: maintain a typed boundary while repairing a subtle bug",
+        ],
+        "engineering_style": [
+            "dataclass or TypedDict contract",
+            "Protocol or enum-backed public interface",
+            "pathlib/datetime/decimal safe standard-library handling",
+            "pure function with deterministic property-like assertions",
+        ],
+        "failure_mode": [
+            "empty input and malformed input",
+            "duplicate keys, whitespace, or casing variations",
+            "off-by-one boundary and minimum-size cases",
+            "state mutation, aliasing, or idempotency trap",
+        ],
+    },
+    "math": {
+        "difficulty": [
+            "olympiad-style algebra or number theory with a compact exact answer",
+            "advanced counting, probability, or recurrence reasoning",
+            "geometry, inequality, or invariant-based reasoning",
+            "MPQA-max style multi-step quantitative reasoning with verifiable final answer",
+        ],
+        "reasoning_style": [
+            "derive a formula before substituting numbers",
+            "use a hidden invariant or monotonicity argument",
+            "compare two approaches and reject a tempting wrong shortcut",
+            "include a numeric sanity check after the symbolic answer",
+        ],
+        "answer_shape": [
+            "integer or reduced rational",
+            "simple radical or expression SymPy can compare",
+            "finite set or ordered tuple encoded as text",
+            "closed-form expression with explicitly named variables",
+        ],
+    },
+    "stem_reasoning": {
+        "difficulty": [
+            "graduate-level but answerable from first principles",
+            "cross-domain physics/chemistry/biology/medicine/statistics tradeoff",
+            "engineering constraint analysis with a quantitative hook",
+            "scientific-method scenario with confounders and controls",
+        ],
+        "reasoning_style": [
+            "explain why the best option survives two constraints",
+            "include at least one plausible distractor and refute it",
+            "combine qualitative mechanism with one small calculation",
+            "separate population-level evidence from individual-level advice",
+        ],
+        "knowledge_axis": [
+            "biomedical or medical science without patient-specific treatment",
+            "physics, chemistry, or materials science",
+            "statistics, ML, or experimental design",
+            "environmental, systems, or engineering science",
+        ],
+    },
+    "tool_use": {
+        "difficulty": [
+            "single MCP call with concrete required arguments",
+            "agent harness call with cwd/path/query/timeout fields",
+            "read-only inspection call with expected observation",
+            "dry-run mutation request that must preserve safety boundaries",
+        ],
+        "schema_style": [
+            "mcp.filesystem.* or mcp.repo.* style tool",
+            "mcp.browser.* or mcp.web.* style tool",
+            "agent.shell.* or agent.task.* harness call",
+            "mcp.huggingface.* or mcp.github.* integration call",
+        ],
+        "safety_boundary": [
+            "read_only must be true",
+            "dry_run must be true for risky mutations",
+            "timeout_ms and expected_observation must be explicit",
+            "arguments must include a specific non-empty target path, query, or payload",
+        ],
+    },
+}
+
+
+def _cycle(items: list[str], index: int, salt: int = 0) -> str:
+    return items[(index + salt) % len(items)]
+
+
+def _v1_prompt_diversity_hint(task: DistillTask) -> str:
+    axes = _V1_DIVERSITY_AXES.get(task.lane)
+    if not axes:
+        return ""
+    ordered_axes = list(axes.items())
+    lines = ["DIVERSITY V1 REQUIREMENTS:"]
+    for salt, (axis_name, values) in enumerate(ordered_axes):
+        lines.append(f"- {axis_name}: {_cycle(values, task.variant_index, salt)}")
+    lines.append("- Make this sample semantically distinct from prior variants, not just reworded.")
+    return "\n".join(lines) + "\n"
+
+
 def build_teacher_instruction(
     task: DistillTask,
     *,
@@ -1483,6 +1583,7 @@ def build_teacher_instruction(
     variant_line = f"Variant hint: {task.variant}\n" if task.variant else ""
     tags_line = ", ".join(task.tags or task.risk_tags) or "general"
     retry_line = f"Generation attempt: {attempt + 1}. Make this example distinct and concrete.\n" if attempt else ""
+    diversity_line = _v1_prompt_diversity_hint(task) if quality_profile == "v1" else ""
 
     if task.lane == "detection":
         label_hint = "allow" if task.mode == "benign_control" else task.target_label
@@ -1522,6 +1623,7 @@ def build_teacher_instruction(
             "verifier_snippet must be executable Python assertions or checks that pass when appended after the candidate code.\n"
             "Use only the Python standard library unless the task explicitly asks otherwise.\n"
             f"{v1_clause}"
+            f"{diversity_line}"
             f"{retry_line}"
             f"Task family: {task.domain}\n"
             f"Description: {task.description}\n"
@@ -1546,6 +1648,7 @@ def build_teacher_instruction(
             "Return JSON only with keys: question, reasoning, final_answer, reference, rationale.\n"
             "reference must exactly match the final_answer string.\n"
             f"{v1_clause}"
+            f"{diversity_line}"
             f"{retry_line}"
             f"Task family: {task.domain}\n"
             f"Description: {task.description}\n"
@@ -1571,6 +1674,7 @@ def build_teacher_instruction(
             "Return JSON only with keys: question, choices, reasoning, final_choice, reference, rationale.\n"
             "choices must be a list like ['A. ...', 'B. ...', 'C. ...', 'D. ...'] and reference must equal the final choice letter.\n"
             f"{v1_clause}"
+            f"{diversity_line}"
             f"{retry_line}"
             f"Task family: {task.domain}\n"
             f"Description: {task.description}\n"
@@ -1596,6 +1700,7 @@ def build_teacher_instruction(
             "Return JSON only with keys: user_request, tool_name, arguments, reference, rationale.\n"
             "reference must be an object with keys tool_name and arguments that exactly matches the intended tool call.\n"
             f"{v1_clause}"
+            f"{diversity_line}"
             f"{retry_line}"
             f"Task family: {task.domain}\n"
             f"Description: {task.description}\n"

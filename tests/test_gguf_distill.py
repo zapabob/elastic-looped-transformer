@@ -226,6 +226,31 @@ tasks:
     assert {task.variant for task in tasks} == {"one", "two"}
 
 
+def test_v1_teacher_prompt_varies_by_variant_index() -> None:
+    task0 = _lane_task("math", variant_index=0)
+    task1 = _lane_task("math", variant_index=1)
+
+    prompt0 = build_teacher_instruction(task0, quality_profile="v1")
+    prompt1 = build_teacher_instruction(task1, quality_profile="v1")
+
+    assert prompt0 != prompt1
+    assert "DIVERSITY V1 REQUIREMENTS" in prompt0
+    assert "- difficulty:" in prompt0
+    assert "- reasoning_style:" in prompt0
+    assert "fallback answer 0" in prompt0
+
+
+def test_tool_v1_teacher_prompt_requires_mcp_or_agent_harness() -> None:
+    task = _lane_task("tool_use", variant_index=2)
+
+    prompt = build_teacher_instruction(task, quality_profile="v1")
+
+    assert "MCP / AI-agent harness" in prompt
+    assert "tool_name must be an MCP-style or agent-harness tool name" in prompt
+    assert "DIVERSITY V1 REQUIREMENTS" in prompt
+    assert "read_only" in prompt or "dry_run" in prompt
+
+
 def test_build_code_math_and_tool_records_include_reference_and_lane_metadata() -> None:
     code_task = DistillTask(
         lane="code",

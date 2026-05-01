@@ -14,6 +14,7 @@ Manual checks:
     uv run --no-sync python scripts/pipeline.py --profile side-lora --dry-run
     uv run --no-sync python scripts/pipeline.py --profile posttrain-grpo --dry-run
     uv run --no-sync python scripts/pipeline.py --profile replay-refresh --dry-run
+    uv run --no-sync python scripts/pipeline.py --profile v1-pretrain-posttrain --dry-run
     uv run --no-sync python scripts/pipeline.py --only 00_pretrain_clean --dry-run
     uv run --no-sync python scripts/pipeline.py --no-start-long-train
 """
@@ -47,6 +48,9 @@ TOKENIZER = "H:/Qwen3.5-9B-official-hf"
 HUIHUI_DETECTION_ROOT = Path("H:/elt_data/gguf_distill/huihui_qwen36_detection")
 HUIHUI_DETECTION_PREP_ROOT = Path("H:/elt_data/posttrain/detection/huihui_qwen36")
 QWEN35_BOOTSTRAP_CKPT = Path("H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt")
+HF_DATASET_MIX_CONFIG = "configs/hf_dataset_mix_v1.yaml"
+HF_DATASET_MIX_ROOT = Path("H:/elt_data/hf_dataset_mix_v1")
+HAUHAUCS_V1_QUEUE_CONFIG = "configs/gguf_distill_qwen35_hauhaucs_multilane_v1_queue.yaml"
 # Use the 8.3 short path because Python's Windows subprocess quoting can pass
 # quoted .bat paths through to cmd.exe as literal escaped quotes.
 VSDEV_CMD = "C:\\PROGRA~1\\MICROS~4\\2022\\COMMUN~1\\Common7\\Tools\\VsDevCmd.bat"
@@ -680,11 +684,40 @@ def stage_hauhaucs_multilane_distill(ctx: PipelineContext) -> None:
     run_subprocess(cmd, dry_run=ctx.dry_run)
 
 
+def stage_fetch_hf_dataset_mix_v1(ctx: PipelineContext) -> None:
+    summary = HF_DATASET_MIX_ROOT / "summary.json"
+    if file_nonempty(summary):
+        print(f"  skip existing HF dataset mix summary: {summary}")
+        return
+    cmd = [
+        "uv", "run", "--no-sync", "python", "-m", "elt_lm.hf_dataset_mix",
+        "--config", HF_DATASET_MIX_CONFIG,
+        "--output-root", str(HF_DATASET_MIX_ROOT),
+        "--max-rows-per-source", "32",
+    ]
+    run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_hauhaucs_v1_multilane_distill(ctx: PipelineContext) -> None:
+    cmd = [
+        "uv", "run", "--no-sync", "elt-gguf-distill-queue",
+        "--config", HAUHAUCS_V1_QUEUE_CONFIG,
+    ]
+    run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
 LANE_PREP: list[tuple[str, Path, Path, str]] = [
     ("code", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_code"), Path("H:/elt_data/posttrain/code/qwen35_hauhaucs"), "configs/posttrain_code_sft_qwen35_hauhaucs.yaml"),
     ("math", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_math"), Path("H:/elt_data/posttrain/math/qwen35_hauhaucs"), "configs/posttrain_math_sft_qwen35_hauhaucs.yaml"),
     ("stem_reasoning", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_stem_reasoning"), Path("H:/elt_data/posttrain/stem_reasoning/qwen35_hauhaucs"), "configs/posttrain_stem_sft_qwen35_hauhaucs.yaml"),
     ("tool_use", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_tool_use"), Path("H:/elt_data/posttrain/tool_use/qwen35_hauhaucs"), "configs/posttrain_tool_sft_qwen35_hauhaucs.yaml"),
+]
+
+V1_LANE_PREP: list[tuple[str, Path, Path, str]] = [
+    ("code", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_code_v1"), Path("H:/elt_data/posttrain_v1/code/qwen35_hauhaucs"), "configs/posttrain_code_sft_qwen35_hauhaucs_v1.yaml"),
+    ("math", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_math_v1"), Path("H:/elt_data/posttrain_v1/math/qwen35_hauhaucs"), "configs/posttrain_math_sft_qwen35_hauhaucs_v1.yaml"),
+    ("stem_reasoning", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_stem_reasoning_v1"), Path("H:/elt_data/posttrain_v1/stem_reasoning/qwen35_hauhaucs"), "configs/posttrain_stem_sft_qwen35_hauhaucs_v1.yaml"),
+    ("tool_use", Path("H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_tool_use_v1"), Path("H:/elt_data/posttrain_v1/tool_use/qwen35_hauhaucs"), "configs/posttrain_tool_sft_qwen35_hauhaucs_v1.yaml"),
 ]
 
 STEM_SFT_CONFIG = "configs/posttrain_stem_sft_qwen35_hauhaucs.yaml"
@@ -799,6 +832,27 @@ def stage_prepare_hauhaucs_lanes(ctx: PipelineContext) -> None:
         run_subprocess(prep_cmd, dry_run=ctx.dry_run)
 
 
+def stage_prepare_hauhaucs_v1_lanes(ctx: PipelineContext) -> None:
+    for lane, input_root, output_root, _config_path in V1_LANE_PREP:
+        info = inspect_distill_bundle(input_root)
+        if not (info["train_nonempty"] and info["val_nonempty"]):
+            raise PipelineError(f"v1 lane {lane} distill bundle is missing train/val JSONL: {input_root}")
+        train_bin = output_root / "bin" / "train.bin"
+        val_bin = output_root / "bin" / "val.bin"
+        summary = output_root / "prep_summary.json"
+        if file_nonempty(train_bin) and file_nonempty(val_bin) and file_nonempty(summary):
+            print(f"  skip prepared v1 lane: {lane}")
+            continue
+        prep_cmd = [
+            "uv", "run", "--no-sync", "elt-prepare-gguf-lane-sft",
+            "--input-root", str(input_root),
+            "--output-root", str(output_root),
+            "--tokenizer", TOKENIZER,
+            "--lane", lane,
+        ]
+        run_subprocess(prep_cmd, dry_run=ctx.dry_run)
+
+
 def stage_hauhaucs_lane_sft_only(ctx: PipelineContext) -> None:
     for lane, _input_root, _output_root, config_path in LANE_PREP:
         enforce_v0_lane_quality(lane, _input_root)
@@ -817,6 +871,26 @@ def stage_hauhaucs_lane_sft_only(ctx: PipelineContext) -> None:
         )
         if lane == "stem_reasoning":
             stage_stem_sft_val_eval(ctx)
+
+
+def stage_hauhaucs_v1_lane_sft(ctx: PipelineContext) -> None:
+    initial = first_existing([
+        Path("H:/elt_data/runs/base_1B_clean_replay_phase2/last.pt"),
+        Path("H:/elt_data/runs/base_1B_clean_continue/last.pt"),
+    ])
+    for lane, _input_root, _output_root, config_path in V1_LANE_PREP:
+        if training_run_complete(config_path):
+            print(f"  skip completed training config: {config_path}")
+            prune_completed_checkpoints(config_path, dry_run=ctx.dry_run)
+            cleanup_completed_offload(config_path, dry_run=ctx.dry_run)
+            continue
+        run_training_config(
+            ctx,
+            config_path,
+            entrypoint="elt-train",
+            initial_resume=initial,
+            cleanup_offload_on_success=True,
+        )
 
 
 def run_grpo_configs(ctx: PipelineContext, config_paths: list[str]) -> None:
@@ -845,6 +919,17 @@ def stage_kl_grpo(ctx: PipelineContext) -> None:
             "configs/grpo_code_qwen35_hauhaucs.yaml",
             "configs/grpo_math_qwen35_hauhaucs.yaml",
             "configs/grpo_tool_qwen35_hauhaucs.yaml",
+        ],
+    )
+
+
+def stage_kl_grpo_v1(ctx: PipelineContext) -> None:
+    run_grpo_configs(
+        ctx,
+        [
+            "configs/grpo_code_qwen35_hauhaucs_v1.yaml",
+            "configs/grpo_math_qwen35_hauhaucs_v1.yaml",
+            "configs/grpo_tool_qwen35_hauhaucs_v1.yaml",
         ],
     )
 
@@ -924,6 +1009,13 @@ def first_existing(paths: list[Path]) -> Path | None:
 
 def stage_eval_compare(ctx: PipelineContext) -> None:
     ckpt = first_existing([
+        Path("H:/elt_data/runs/grpo_tool_qwen35_hauhaucs_v1/last.pt"),
+        Path("H:/elt_data/runs/grpo_math_qwen35_hauhaucs_v1/last.pt"),
+        Path("H:/elt_data/runs/grpo_code_qwen35_hauhaucs_v1/last.pt"),
+        Path("H:/elt_data/runs/posttrain_tool_sft_qwen35_hauhaucs_v1/last.pt"),
+        Path("H:/elt_data/runs/posttrain_stem_sft_qwen35_hauhaucs_v1/last.pt"),
+        Path("H:/elt_data/runs/posttrain_math_sft_qwen35_hauhaucs_v1/last.pt"),
+        Path("H:/elt_data/runs/posttrain_code_sft_qwen35_hauhaucs_v1/last.pt"),
         Path("H:/elt_data/runs/grpo_tool_qwen35_hauhaucs_replay/last.pt"),
         Path("H:/elt_data/runs/grpo_math_qwen35_hauhaucs_replay/last.pt"),
         Path("H:/elt_data/runs/grpo_code_qwen35_hauhaucs_replay/last.pt"),
@@ -1066,11 +1158,22 @@ REPLAY_REFRESH_STAGES: list[Stage] = [
     Stage("05_eval_compare", stage_eval_compare),
 ]
 
+V1_PRETRAIN_POSTTRAIN_STAGES: list[Stage] = [
+    Stage("00_fetch_hf_dataset_mix_v1", stage_fetch_hf_dataset_mix_v1),
+    Stage("01_hauhaucs_v1_multilane_distill", stage_hauhaucs_v1_multilane_distill, long_running=True),
+    Stage("02_prepare_hauhaucs_v1_lanes", stage_prepare_hauhaucs_v1_lanes),
+    Stage("03_native_clean_replay_pretrain", stage_native_clean_replay_pretrain, long_running=True),
+    Stage("04_hauhaucs_v1_lane_sft", stage_hauhaucs_v1_lane_sft, long_running=True),
+    Stage("05_kl_grpo_v1", stage_kl_grpo_v1, long_running=True),
+    Stage("06_eval_compare", stage_eval_compare),
+]
+
 STAGE_PROFILES: dict[str, list[Stage]] = {
     "full": FULL_STAGES,
     "posttrain-grpo": POSTTRAIN_GRPO_STAGES,
     "replay-refresh": REPLAY_REFRESH_STAGES,
     "side-lora": SIDE_LORA_STAGES,
+    "v1-pretrain-posttrain": V1_PRETRAIN_POSTTRAIN_STAGES,
 }
 
 # Backward-compatible public name used by tests and old scripts.
