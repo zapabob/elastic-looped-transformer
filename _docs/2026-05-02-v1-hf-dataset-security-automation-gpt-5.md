@@ -87,6 +87,11 @@ before it can proceed.
   are counted in `error_count` and are expected to occur under the v1 gate.
 - The initial partial `code_v1` output with only rejected items was reset before
   restart; the existing HF dataset sample stage marker was preserved.
+- A later live audit found that code-v1 could accept verifier snippets whose
+  `assert` statements lived inside an uncalled `test_*` function. The pipeline
+  was stopped, the partial `code_v1` output was treated as disposable, and the
+  v1 validator now requires assertions that execute at top level or a test
+  function that is called at top level.
 
 ## Next session notes
 
@@ -94,6 +99,9 @@ before it can proceed.
   `scripts/pipeline_register.ps1 -Profile v1-pretrain-posttrain -StartLongTrain`.
 - The progress reporter should be registered with
   `scripts/pipeline_progress_register.ps1 -IntervalMinutes 5`.
+- If v1 code distillation is restarted after this fix, reset only
+  `H:/elt_data/gguf_distill/qwen35_9b_hauhaucs_code_v1` and the v1 queue state;
+  preserve `H:/elt_data/hf_dataset_mix_v1` and its completed stage marker.
 - Some HF datasets need follow-up normalization:
   `codeparrot/apps` and `bigbio/pubmed_qa` require script-compatible handling;
   `cais/mmlu` needs an explicit config; `openai/openai_humaneval` and

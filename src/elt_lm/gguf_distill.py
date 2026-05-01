@@ -827,6 +827,47 @@ def _python_code_has_public_typed_callable(code: str) -> bool:
     return False
 
 
+def _stmt_executes_assert(stmt: ast.stmt, assert_function_names: set[str]) -> bool:
+    if isinstance(stmt, ast.Assert):
+        return True
+    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+        func = stmt.value.func
+        if isinstance(func, ast.Name) and func.id in assert_function_names:
+            return True
+    if isinstance(stmt, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)):
+        return any(_stmt_executes_assert(child, assert_function_names) for child in stmt.body)
+    if isinstance(stmt, ast.Try):
+        child_groups = [stmt.body, stmt.orelse, stmt.finalbody]
+        child_groups.extend(handler.body for handler in stmt.handlers)
+        return any(
+            _stmt_executes_assert(child, assert_function_names)
+            for group in child_groups
+            for child in group
+        )
+    return False
+
+
+def _verifier_has_executing_asserts(verifier: str) -> bool:
+    try:
+        tree = ast.parse(verifier)
+    except SyntaxError:
+        return False
+
+    assert_function_names: set[str] = set()
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(isinstance(child, ast.Assert) for child in ast.walk(node)):
+            assert_function_names.add(node.name)
+
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if _stmt_executes_assert(stmt, assert_function_names):
+            return True
+    return False
+
+
 def _tool_name_is_agentic_mcp(tool_name: str) -> bool:
     normalized = tool_name.strip().lower()
     return normalized.startswith(("mcp.", "agent."))
@@ -930,6 +971,8 @@ def validate_distill_record_quality(
             raise DistillQualityError("missing_typed_public_callable")
         if assert_count == 0:
             raise DistillQualityError("missing_assert_verifier")
+        if not _verifier_has_executing_asserts(verifier):
+            raise DistillQualityError("non_executing_assert_verifier")
         if "assert callable" in verifier.lower() and assert_count <= 1:
             raise DistillQualityError("callable_only_verifier")
         if python_exec_correctness(str(record["response"]), str(record["reference"]), timeout_s=2.0) < 1.0:
@@ -1627,6 +1670,7 @@ def build_teacher_instruction(
                 "- Keep the code deterministic, side-effect-light, Python 3.12 compatible, and standard-library only.\n"
                 "- Treat warning-zero as a data contract: code should pass ruff check and mypy --strict when those tools are available.\n"
                 "- verifier_snippet must contain meaningful assert statements with expected values for nominal and edge cases.\n"
+                "- verifier_snippet must execute its assertions at top level, or define a test_* function and call it at top level.\n"
                 "- Do not use a callable-only verifier such as assert callable(...).\n"
                 "- Keep assistant_code compact: one small module, at most about 90 lines, no version guards unless necessary.\n"
                 "- MILSPEC-style means reliable contracts and tests; avoid lengthy CRC, crypto, binary protocol, networking, or OS-control implementations.\n"

@@ -535,6 +535,49 @@ def test_v1_accepts_code_with_assert_verifier(tmp_path: Path, monkeypatch: pytes
     validate_distill_record_quality(record, example, task, cfg)
 
 
+def test_v1_rejects_code_verifier_when_asserts_are_never_called(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import elt_lm.gguf_distill as gguf_distill
+
+    monkeypatch.setattr(gguf_distill, "python_exec_correctness", lambda *_args, **_kwargs: 1.0)
+    monkeypatch.setattr(gguf_distill, "ruff_check_score", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(gguf_distill, "mypy_strict_score", lambda *_args, **_kwargs: None)
+    cfg = _quality_cfg(tmp_path, "code")
+    task = _lane_task("code")
+    example = {
+        "user_request": "Write add(a, b) returning the sum.",
+        "assistant_code": "def add(a: int, b: int) -> int:\n    return a + b",
+        "verifier_snippet": "def test_add() -> None:\n    assert add(2, 3) == 5",
+        "rationale": "assert is hidden in an uncalled test function",
+    }
+    record = build_sft_record(task=task, example=example, teacher_name="hauhaucs", split="train")
+
+    with pytest.raises(DistillQualityError, match="non_executing_assert_verifier"):
+        validate_distill_record_quality(record, example, task, cfg)
+
+
+def test_v1_accepts_code_verifier_when_test_function_is_called(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import elt_lm.gguf_distill as gguf_distill
+
+    monkeypatch.setattr(gguf_distill, "python_exec_correctness", lambda *_args, **_kwargs: 1.0)
+    monkeypatch.setattr(gguf_distill, "ruff_check_score", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(gguf_distill, "mypy_strict_score", lambda *_args, **_kwargs: None)
+    cfg = _quality_cfg(tmp_path, "code")
+    task = _lane_task("code")
+    example = {
+        "user_request": "Write add(a, b) returning the sum.",
+        "assistant_code": "def add(a: int, b: int) -> int:\n    return a + b",
+        "verifier_snippet": "def test_add() -> None:\n    assert add(2, 3) == 5\n\ntest_add()",
+        "rationale": "asserting test function is called at top level",
+    }
+    record = build_sft_record(task=task, example=example, teacher_name="hauhaucs", split="train")
+
+    validate_distill_record_quality(record, example, task, cfg)
+
+
 def test_v1_rejects_math_zero_fallback_and_accepts_equivalent_answer(tmp_path: Path) -> None:
     cfg = _quality_cfg(tmp_path, "math")
     task = _lane_task("math")
@@ -714,6 +757,7 @@ def test_v1_teacher_instructions_encode_lane_quality_requirements() -> None:
     assert "MILSPEC-style Python" in code_prompt
     assert "mypy --strict" in code_prompt
     assert "complete parameter and return type annotations" in code_prompt
+    assert "call it at top level" in code_prompt
 
     math_prompt = build_teacher_instruction(_lane_task("math"), quality_profile="v1")
     assert "MATH/AIME/GPQA-style" in math_prompt
