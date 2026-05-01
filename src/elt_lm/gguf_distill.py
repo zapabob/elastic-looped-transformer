@@ -827,6 +827,18 @@ def _python_code_has_public_typed_callable(code: str) -> bool:
     return False
 
 
+def _top_level_api_names(code: str) -> set[str]:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return set()
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+    return names
+
+
 def _stmt_executes_assert(stmt: ast.stmt, assert_function_names: set[str]) -> bool:
     if isinstance(stmt, ast.Assert):
         return True
@@ -865,6 +877,20 @@ def _verifier_has_executing_asserts(verifier: str) -> bool:
             continue
         if _stmt_executes_assert(stmt, assert_function_names):
             return True
+    return False
+
+
+def _verifier_redefines_candidate_api(verifier: str, candidate_api_names: set[str]) -> bool:
+    if not candidate_api_names:
+        return False
+    try:
+        tree = ast.parse(verifier)
+    except SyntaxError:
+        return True
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name in candidate_api_names and not node.name.startswith("test_"):
+                return True
     return False
 
 
@@ -964,6 +990,7 @@ def validate_distill_record_quality(
         code = str(example.get("assistant_code", "")).strip()
         verifier = str(example.get("verifier_snippet", example.get("reference", ""))).strip()
         compact_code = re.sub(r"\s+", "", code).lower()
+        candidate_api_names = _top_level_api_names(code)
         assert_count = len(re.findall(r"\bassert\b", verifier))
         if "returnnone" in compact_code or re.search(r"\bpass\b|todo", code, re.IGNORECASE):
             raise DistillQualityError("fallback_code_stub")
@@ -973,6 +1000,8 @@ def validate_distill_record_quality(
             raise DistillQualityError("missing_assert_verifier")
         if not _verifier_has_executing_asserts(verifier):
             raise DistillQualityError("non_executing_assert_verifier")
+        if _verifier_redefines_candidate_api(verifier, candidate_api_names):
+            raise DistillQualityError("verifier_redefines_candidate_api")
         if "assert callable" in verifier.lower() and assert_count <= 1:
             raise DistillQualityError("callable_only_verifier")
         if python_exec_correctness(str(record["response"]), str(record["reference"]), timeout_s=2.0) < 1.0:
@@ -1671,6 +1700,8 @@ def build_teacher_instruction(
                 "- Treat warning-zero as a data contract: code should pass ruff check and mypy --strict when those tools are available.\n"
                 "- verifier_snippet must contain meaningful assert statements with expected values for nominal and edge cases.\n"
                 "- verifier_snippet must execute its assertions at top level, or define a test_* function and call it at top level.\n"
+                "- verifier_snippet is appended after assistant_code; do not redefine the candidate function, classes, dataclasses, or enums.\n"
+                "- Keep verifier_snippet concise: direct construction of inputs plus asserts, preferably under 45 lines.\n"
                 "- Do not use a callable-only verifier such as assert callable(...).\n"
                 "- Keep assistant_code compact: one small module, at most about 90 lines, no version guards unless necessary.\n"
                 "- MILSPEC-style means reliable contracts and tests; avoid lengthy CRC, crypto, binary protocol, networking, or OS-control implementations.\n"

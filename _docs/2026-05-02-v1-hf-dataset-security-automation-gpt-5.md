@@ -92,6 +92,11 @@ before it can proceed.
   was stopped, the partial `code_v1` output was treated as disposable, and the
   v1 validator now requires assertions that execute at top level or a test
   function that is called at top level.
+- The same audit found a stronger code-verifier failure mode: a verifier could
+  redefine the candidate function/classes and then pass against its own
+  redefinition. The code lane now rejects verifier snippets that redefine
+  top-level candidate APIs, and the prompt tells the teacher that the verifier
+  is appended after `assistant_code`.
 
 ## Next session notes
 
