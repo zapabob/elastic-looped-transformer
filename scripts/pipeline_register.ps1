@@ -14,7 +14,7 @@
 param(
     [switch]$StartLongTrain,
     [switch]$WriteLauncherOnly,
-    [ValidateSet("full", "posttrain-grpo", "replay-refresh", "side-lora", "v1-pretrain-posttrain", "synthetic-v1-pretrain-posttrain")]
+    [ValidateSet("full", "posttrain-grpo", "replay-refresh", "side-lora", "v1-pretrain-posttrain", "synthetic-v1-pretrain-posttrain", "synthetic-gb-side-lora")]
     [string]$Profile = "full"
 )
 

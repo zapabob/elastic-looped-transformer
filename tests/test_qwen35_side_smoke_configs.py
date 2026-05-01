@@ -111,3 +111,30 @@ def test_qwen35_4b_side_lora_long_configs_are_adapter_only() -> None:
             assert cfg.model.hf_lora_rank == 8
             assert cfg.model.hf_lora_top_layers == 0
             assert cfg.total_steps > 80
+
+
+def test_qwen35_4b_side_lora_synthetic_gb_configs_are_adapter_only() -> None:
+    expected_bins = {
+        "qwen35_4b_side_lora_math_sft_synthetic_gb.yaml": (
+            "H:/elt_data/posttrain_synthetic/math/v1_gb/bin/train.bin",
+            "H:/elt_data/posttrain_synthetic/math/v1_gb/bin/val.bin",
+        ),
+        "qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml": (
+            "H:/elt_data/posttrain_synthetic/stem_reasoning/v1_gb/bin/train.bin",
+            "H:/elt_data/posttrain_synthetic/stem_reasoning/v1_gb/bin/val.bin",
+        ),
+    }
+    for name, (train_bin, val_bin) in expected_bins.items():
+        cfg = load_train_config(ROOT / "configs" / name)
+        assert cfg.model.backbone_kind == "hf_qwen35_looped"
+        assert cfg.model.hf_trainable_mode == "lora"
+        assert cfg.model.hf_save_adapter_only is True
+        assert cfg.model.hf_adapter_base_ckpt == "H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt"
+        assert cfg.model.hf_lora_rank == 16
+        assert cfg.optim.kind == "adamw"
+        assert cfg.data.train_bin == train_bin
+        assert cfg.data.val_bin == val_bin
+        assert cfg.data.seq_len <= 256
+        assert cfg.total_steps <= 240
+        assert cfg.rolling_ckpt_interval_sec == 300
+        assert cfg.rolling_ckpt_keep == 3

@@ -73,6 +73,33 @@ clearance, machine-learning calibration, thermodynamics, and diagnostic
 likelihood-ratio reasoning. STEM answer distribution remained balanced:
 `A=147,235`, `B=147,235`, `C=147,234`, `D=147,234`.
 
+# LoRA Handoff
+
+The dedicated math/STEM GB corpora should feed the 4B side branch through
+adapter-only LoRA before later GRPO/eval stages. Full 4B fine-tuning is avoided.
+New configs isolate those runs:
+
+- `configs/qwen35_4b_side_lora_math_sft_synthetic_gb.yaml`
+- `configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml`
+
+The pipeline profile is `synthetic-gb-side-lora`:
+
+1. prepare `H:/elt_data/synthetic_v1_math_gb/math` and
+   `H:/elt_data/synthetic_v1_stem_gb/stem_reasoning`
+2. run 4B side LoRA SFT for math then STEM
+3. export adapter-only artifacts
+4. run eval compare
+
+Prepare was executed successfully. Token inventory:
+
+- math: `822,659` train records, `117,523` val records,
+  `101,160,065` train tokens, `14,366,028` val tokens
+- stem_reasoning: `515,320` train records, `73,618` val records,
+  `77,833,888` train tokens, `11,014,091` val tokens
+
+The Qwen3.5-4B side bootstrap checkpoint exists at
+`H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt`.
+
 # Next Session Notes
 
 - If `H:/elt_data/pipeline_state/01_build_synthetic_v1_seed.done` exists from

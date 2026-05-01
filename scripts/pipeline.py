@@ -52,6 +52,8 @@ HF_DATASET_MIX_CONFIG = "configs/hf_dataset_mix_v1.yaml"
 HF_DATASET_MIX_ROOT = Path("H:/elt_data/hf_dataset_mix_v1")
 SYNTHETIC_V1_SEED_ROOT = Path("H:/elt_data/synthetic_v1_seed_gb")
 SYNTHETIC_V1_TARGET_BYTES = 1024 * 1024 * 1024
+SYNTHETIC_V1_MATH_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_math_gb/math")
+SYNTHETIC_V1_STEM_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_stem_gb/stem_reasoning")
 HAUHAUCS_V1_QUEUE_CONFIG = "configs/gguf_distill_qwen35_hauhaucs_multilane_v1_queue.yaml"
 # Use the 8.3 short path because Python's Windows subprocess quoting can pass
 # quoted .bat paths through to cmd.exe as literal escaped quotes.
@@ -1150,6 +1152,68 @@ def stage_side_lora_mixed_sft(ctx: PipelineContext) -> None:
     run_side_lora_sft_configs(ctx, SIDE_LORA_MIXED_SFT_CONFIGS)
 
 
+SYNTHETIC_GB_LORA_PREP: list[tuple[str, Path, Path, str]] = [
+    (
+        "math",
+        SYNTHETIC_V1_MATH_GB_INPUT_ROOT,
+        Path("H:/elt_data/posttrain_synthetic/math/v1_gb"),
+        "configs/qwen35_4b_side_lora_math_sft_synthetic_gb.yaml",
+    ),
+    (
+        "stem_reasoning",
+        SYNTHETIC_V1_STEM_GB_INPUT_ROOT,
+        Path("H:/elt_data/posttrain_synthetic/stem_reasoning/v1_gb"),
+        "configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml",
+    ),
+]
+
+SIDE_LORA_SYNTHETIC_GB_SFT_CONFIGS: list[str] = [
+    "configs/qwen35_4b_side_lora_math_sft_synthetic_gb.yaml",
+    "configs/qwen35_4b_side_lora_stem_sft_synthetic_gb.yaml",
+]
+
+
+def stage_prepare_synthetic_gb_lora_lanes(ctx: PipelineContext) -> None:
+    for lane, input_root, output_root, _config_path in SYNTHETIC_GB_LORA_PREP:
+        info = inspect_distill_bundle(input_root)
+        if not (info["train_nonempty"] and info["val_nonempty"]):
+            raise PipelineError(f"synthetic GB lane bundle is missing train/val JSONL: {input_root}")
+        train_bin = output_root / "bin" / "train.bin"
+        val_bin = output_root / "bin" / "val.bin"
+        summary = output_root / "prep_summary.json"
+        if file_nonempty(train_bin) and file_nonempty(val_bin) and file_nonempty(summary):
+            print(f"  skip prepared synthetic GB lane: {lane}")
+            continue
+        cmd = [
+            "uv", "run", "--no-sync", "elt-prepare-gguf-lane-sft",
+            "--input-root", str(input_root),
+            "--output-root", str(output_root),
+            "--tokenizer", TOKENIZER,
+            "--lane", lane,
+        ]
+        run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_side_lora_synthetic_gb_sft(ctx: PipelineContext) -> None:
+    run_side_lora_sft_configs(ctx, SIDE_LORA_SYNTHETIC_GB_SFT_CONFIGS)
+
+
+def stage_export_synthetic_gb_side_lora_adapters(ctx: PipelineContext) -> None:
+    exports = [
+        ("synthetic_math_gb", Path("H:/elt_data/runs/qwen35_4b_side_lora_math_sft_synthetic_gb/last.pt")),
+        ("synthetic_stem_gb", Path("H:/elt_data/runs/qwen35_4b_side_lora_stem_sft_synthetic_gb/last.pt")),
+    ]
+    for name, ckpt in exports:
+        if not file_nonempty(ckpt):
+            raise PipelineError(f"cannot export missing synthetic side LoRA checkpoint: {ckpt}")
+        cmd = [
+            "uv", "run", "--no-sync", "python", "-m", "elt_lm.export_lora_adapter",
+            "--ckpt", str(ckpt),
+            "--out-dir", f"H:/elt_data/adapters/qwen35_4b_side/{name}",
+        ]
+        run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
 FULL_STAGES: list[Stage] = [
     Stage("00_pretrain_clean", stage_pretrain_clean, long_running=True),
     Stage("01_distill_huihui_detection_upload_or_recover", stage_distill_huihui_detection_upload_or_recover),
@@ -1210,12 +1274,20 @@ SYNTHETIC_V1_PRETRAIN_POSTTRAIN_STAGES: list[Stage] = [
     Stage("03_eval_compare", stage_eval_compare),
 ]
 
+SYNTHETIC_GB_SIDE_LORA_STAGES: list[Stage] = [
+    Stage("00_prepare_synthetic_gb_lora_lanes", stage_prepare_synthetic_gb_lora_lanes),
+    Stage("01_side_lora_synthetic_gb_sft", stage_side_lora_synthetic_gb_sft, long_running=True),
+    Stage("02_export_synthetic_gb_side_lora_adapters", stage_export_synthetic_gb_side_lora_adapters),
+    Stage("03_eval_compare", stage_eval_compare),
+]
+
 STAGE_PROFILES: dict[str, list[Stage]] = {
     "full": FULL_STAGES,
     "posttrain-grpo": POSTTRAIN_GRPO_STAGES,
     "replay-refresh": REPLAY_REFRESH_STAGES,
     "side-lora": SIDE_LORA_STAGES,
     "v1-pretrain-posttrain": V1_PRETRAIN_POSTTRAIN_STAGES,
+    "synthetic-gb-side-lora": SYNTHETIC_GB_SIDE_LORA_STAGES,
     "synthetic-v1-pretrain-posttrain": SYNTHETIC_V1_PRETRAIN_POSTTRAIN_STAGES,
 }
 
