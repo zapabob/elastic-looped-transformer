@@ -11,7 +11,10 @@ model:
   rope_theta: 10000.0
   tie_word_embeddings: true
   L_min: 1
-  L_max: 4
+  # Low-memory recovery: finish the interrupted math SFT on 12 GB by using a
+  # shallower teacher loop. The checkpoint weights remain shape-compatible with
+  # later L=4 GRPO/eval configs.
+  L_max: 3
   grad_checkpoint: true
 
 ilsd:
@@ -23,21 +26,23 @@ ilsd:
   strict_student_below_teacher: true
   distill_teacher_temp: 1.5
   distill_uniform_mix: 0.001
-  entropy_floor_weight: 0.01
+  # Low-memory recovery: keep teacher-temperature KD, but disable loop-hidden
+  # auxiliary terms that require storing/projecting every loop state.
+  entropy_floor_weight: 0.0
   entropy_floor_start: 0.18
   entropy_floor_end: 0.08
-  entropy_curvature_weight: 0.02
-  logit_curvature_weight: 0.005
-  logit_curvature_max_positions: 32
+  entropy_curvature_weight: 0.0
+  logit_curvature_weight: 0.0
+  logit_curvature_max_positions: 0
   uncertainty_entropy_min: 0.55
   uncertainty_top2_gap_max: 0.15
-  local_consistency_weight: 0.01
+  local_consistency_weight: 0.0
   local_consistency_metric: cosine
 
 data:
   train_bin: H:/elt_data/posttrain/math/qwen35_hauhaucs/bin/train.bin
   val_bin: H:/elt_data/posttrain/math/qwen35_hauhaucs/bin/val.bin
-  seq_len: 1024
+  seq_len: 512
   tokenizer_path: H:/Qwen3.5-9B-official-hf
 
 optim:

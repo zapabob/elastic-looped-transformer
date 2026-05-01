@@ -48,3 +48,14 @@ def test_load_multilane_sft_and_grpo_configs() -> None:
     ]:
         cfg = load_train_config(path)
         assert cfg.data.tokenizer_path.endswith("Qwen3.5-9B-official-hf")
+
+
+def test_math_sft_config_stays_low_memory_after_oom_recovery() -> None:
+    cfg = load_train_config("configs/posttrain_math_sft_qwen35_hauhaucs.yaml")
+    assert cfg.data.seq_len <= 512
+    assert cfg.model.L_max <= 3
+    assert cfg.ilsd.entropy_floor_weight == 0.0
+    assert cfg.ilsd.entropy_curvature_weight == 0.0
+    assert cfg.ilsd.logit_curvature_weight == 0.0
+    assert cfg.ilsd.logit_curvature_max_positions == 0
+    assert cfg.ilsd.local_consistency_weight == 0.0
