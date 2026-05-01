@@ -43,6 +43,7 @@ class GGUFTeacherConfig:
     ctx_size: int = 8192
     n_gpu_layers: int = 99
     threads: int = 8
+    parallel: int = 1
     temperature: float = 0.2
     top_p: float = 0.95
     max_new_tokens: int = 384
@@ -1443,6 +1444,7 @@ def launch_llama_server(cfg: GGUFTeacherConfig, log_path: Path) -> subprocess.Po
         "-c", str(cfg.ctx_size),
         "-ngl", str(cfg.n_gpu_layers),
         "-t", str(cfg.threads),
+        "--parallel", str(cfg.parallel),
     ]
     reasoning = str(cfg.reasoning).strip().lower()
     if reasoning in {"false", "0", "no"}:
@@ -1627,6 +1629,8 @@ def build_teacher_instruction(
                 "- verifier_snippet must contain meaningful assert statements with expected values for nominal and edge cases.\n"
                 "- Do not use a callable-only verifier such as assert callable(...).\n"
                 "- Keep assistant_code compact: one small module, at most about 90 lines, no version guards unless necessary.\n"
+                "- MILSPEC-style means reliable contracts and tests; avoid lengthy CRC, crypto, binary protocol, networking, or OS-control implementations.\n"
+                "- Prefer a small utility that can be fully verified by simple asserts in under one second.\n"
             )
         return (
             "Create one synthetic MILSPEC-style Python coding training example for software-engineering SFT.\n"
