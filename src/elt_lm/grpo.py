@@ -46,7 +46,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -98,8 +97,9 @@ def gather_token_logprobs(
     logits: Tensor, actions: Tensor
 ) -> Tensor:
     """logits: (B, T, V), actions: (B, T) int64 → (B, T) log π(a_t | s_t)."""
-    lp = F.log_softmax(logits.float(), dim=-1)
-    return lp.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+    logits_f = logits.float()
+    action_logits = logits_f.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+    return action_logits - torch.logsumexp(logits_f, dim=-1)
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +136,27 @@ def grpo_loss(
         lp_old = gather_token_logprobs(logits_old, actions)
         lp_ref = gather_token_logprobs(logits_ref, actions)
 
+    return grpo_loss_from_action_logprobs(
+        lp_theta=lp_theta,
+        lp_old=lp_old,
+        lp_ref=lp_ref,
+        response_mask=response_mask,
+        advantages=advantages,
+        clip_eps=clip_eps,
+        kl_beta=kl_beta,
+    )
+
+
+def grpo_loss_from_action_logprobs(
+    lp_theta: Tensor,
+    lp_old: Tensor,
+    lp_ref: Tensor,
+    response_mask: Tensor,
+    advantages: Tensor,
+    clip_eps: float = 0.2,
+    kl_beta: float = 0.05,
+) -> GRPOOutput:
+    """Compute GRPO after old/ref have been reduced to action log-probs."""
     ratio = (lp_theta - lp_old).exp()                      # (B, T)
     adv = advantages.detach().unsqueeze(-1)                # (B, 1)
     # clipped surrogate (we MAXIMIZE ratio·A, so loss = -min(...))

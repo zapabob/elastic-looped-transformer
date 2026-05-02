@@ -58,6 +58,7 @@ SYNTHETIC_V1_CODE_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_code_gb/code")
 SYNTHETIC_V1_MATH_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_math_gb/math")
 SYNTHETIC_V1_STEM_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_stem_gb/stem_reasoning")
 SYNTHETIC_V1_TOOL_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_tool_gb/tool_use")
+SYNTHETIC_GB_SIDE_LORA_CV_LIMIT = 500
 HAUHAUCS_V1_QUEUE_CONFIG = "configs/gguf_distill_qwen35_hauhaucs_multilane_v1_queue.yaml"
 # Use the 8.3 short path because Python's Windows subprocess quoting can pass
 # quoted .bat paths through to cmd.exe as literal escaped quotes.
@@ -86,6 +87,13 @@ H_DRIVE_ENV = {
     "PYTHONPYCACHEPREFIX": str(H_CACHE_ROOT / "pycache"),
 }
 
+PYTHON_TEXT_ENV = {
+    # Scheduled PowerShell/cmd runs on Japanese Windows otherwise expose cp932
+    # stdout to Python, which can crash GRPO logging before training starts.
+    "PYTHONIOENCODING": "utf-8",
+    "PYTHONUTF8": "1",
+}
+
 
 def ensure_h_drive_runtime_dirs() -> None:
     for value in H_DRIVE_ENV.values():
@@ -96,11 +104,15 @@ def h_drive_subprocess_env() -> dict[str, str]:
     ensure_h_drive_runtime_dirs()
     env = os.environ.copy()
     env.update(H_DRIVE_ENV)
+    env.update(PYTHON_TEXT_ENV)
     return env
 
 
 def _cmd_set_env_prefix() -> str:
-    return "".join(f"set {key}={value}&& " for key, value in H_DRIVE_ENV.items())
+    return "".join(
+        f"set {key}={value}&& "
+        for key, value in {**H_DRIVE_ENV, **PYTHON_TEXT_ENV}.items()
+    )
 
 
 class PipelineError(RuntimeError):
@@ -1294,10 +1306,15 @@ def _run_side_lora_cv_eval(
     if not file_nonempty(manifest):
         raise PipelineError(f"missing benchmark manifest for CV eval: {manifest}")
     out_dir = EVAL_ROOT / "synthetic_gb_side_lora" / name
+    bounded_manifest = _write_limited_benchmark_manifest(
+        manifest,
+        out_dir / "manifests",
+        limit=SYNTHETIC_GB_SIDE_LORA_CV_LIMIT,
+    )
     cmd = [
         "uv", "run", "--no-sync", "elt-anytime",
         "--ckpt", str(ckpt),
-        "--benchmark-manifest", str(manifest),
+        "--benchmark-manifest", str(bounded_manifest),
         "--L-list", "1",
         "--bench-max-new-tokens", str(max_new_tokens),
         "--bench-temperature", "0.0",
@@ -1311,13 +1328,42 @@ def _run_side_lora_cv_eval(
     run_subprocess(cmd, dry_run=ctx.dry_run)
 
 
+def _write_limited_benchmark_manifest(manifest: Path, out_dir: Path, *, limit: int) -> Path:
+    if limit <= 0:
+        return manifest
+    with manifest.open("r", encoding="utf-8") as f:
+        payload = yaml.safe_load(f) or {}
+    benchmarks = payload.get("benchmarks")
+    if not isinstance(benchmarks, list) or not benchmarks:
+        raise PipelineError(f"benchmark manifest has no benchmarks: {manifest}")
+
+    bounded = dict(payload)
+    bounded_benchmarks: list[dict[str, Any]] = []
+    for item in benchmarks:
+        if not isinstance(item, dict):
+            raise PipelineError(f"benchmark manifest has invalid benchmark entry: {manifest}")
+        next_item = dict(item)
+        existing_limit = int(next_item.get("limit") or 0)
+        next_item["limit"] = min(existing_limit, limit) if existing_limit > 0 else limit
+        bounded_benchmarks.append(next_item)
+    bounded["benchmarks"] = bounded_benchmarks
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{manifest.stem}_limit{limit}.yaml"
+    out_path.write_text(
+        yaml.safe_dump(bounded, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return out_path
+
+
 def stage_synthetic_gb_side_lora_cv_eval(ctx: PipelineContext) -> None:
     targets = [
         (
             "code_sft",
             Path("H:/elt_data/runs/qwen35_4b_side_lora_code_sft_synthetic_gb/last.pt"),
             Path("H:/elt_data/posttrain_synthetic/code/v1_gb/benchmarks/gguf_code_val_manifest.yaml"),
-            192,
+            256,
         ),
         (
             "math_sft",
@@ -1341,7 +1387,7 @@ def stage_synthetic_gb_side_lora_cv_eval(ctx: PipelineContext) -> None:
             "code_grpo",
             Path("H:/elt_data/runs/grpo_side_lora_code_synthetic_gb/last.pt"),
             Path("H:/elt_data/posttrain_synthetic/code/v1_gb/benchmarks/gguf_code_val_manifest.yaml"),
-            192,
+            256,
         ),
         (
             "math_grpo",

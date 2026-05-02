@@ -13,7 +13,12 @@ import torch
 from elt_lm.config import ModelConfig
 from elt_lm.grpo import group_advantage, grpo_loss
 from elt_lm.model import ELTLanguageModel
-from elt_lm.train_grpo import rollout_group
+from elt_lm.train_grpo import (
+    _adapter_parameter_names,
+    _load_adapter_parameters,
+    _snapshot_adapter_parameters,
+    rollout_group,
+)
 
 
 def _tiny_model() -> ELTLanguageModel:
@@ -31,6 +36,32 @@ def _tiny_model() -> ELTLanguageModel:
     )
     torch.manual_seed(0)
     return ELTLanguageModel(cfg).to(dtype=torch.float32)
+
+
+def test_lora_adapter_snapshot_restore_only_lora_params() -> None:
+    class ToyLoRAModel(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.base = torch.nn.Parameter(torch.tensor([1.0]))
+            self.block = torch.nn.Module()
+            self.block.lora_A = torch.nn.Parameter(torch.tensor([2.0]))
+            self.block.lora_B = torch.nn.Parameter(torch.tensor([3.0]))
+
+    model = ToyLoRAModel()
+    names = _adapter_parameter_names(model)
+    assert names == ["block.lora_A", "block.lora_B"]
+
+    snapshot = _snapshot_adapter_parameters(model, names)
+    with torch.no_grad():
+        model.base.fill_(10.0)
+        model.block.lora_A.fill_(20.0)
+        model.block.lora_B.fill_(30.0)
+
+    _load_adapter_parameters(model, snapshot)
+
+    assert model.base.item() == 10.0
+    assert model.block.lora_A.item() == 2.0
+    assert model.block.lora_B.item() == 3.0
 
 
 def test_rollout_group_shapes_and_mask() -> None:

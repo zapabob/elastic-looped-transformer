@@ -14,7 +14,13 @@ import torch
 from torch import Tensor
 
 from elt_lm.config import TrainConfig, load_train_config
-from elt_lm.grpo import GRPOOutput, group_advantage, grpo_loss
+from elt_lm.grpo import (
+    GRPOOutput,
+    gather_token_logprobs,
+    group_advantage,
+    grpo_loss,
+    grpo_loss_from_action_logprobs,
+)
 from elt_lm.model import build_model
 from elt_lm.posttrain_data import render_chat_text
 from elt_lm.reward_model import ELTRewardModel, score_text_batch
@@ -75,6 +81,62 @@ def load_policy_checkpoint(path: str | Path, model: torch.nn.Module) -> int:
         if hasattr(model, "remember_adapter_base_checkpoint"):
             model.remember_adapter_base_checkpoint(path)  # type: ignore[attr-defined]
     return int(state.get("step", 0)) if isinstance(state, dict) else 0
+
+
+def _adapter_parameter_names(model: torch.nn.Module) -> list[str]:
+    """LoRA params are the only trainable state we snapshot for side branches."""
+
+    return [name for name, _ in model.named_parameters() if ".lora_" in name]
+
+
+def _snapshot_adapter_parameters(
+    model: torch.nn.Module,
+    names: list[str],
+) -> dict[str, Tensor]:
+    params = dict(model.named_parameters())
+    missing = [name for name in names if name not in params]
+    if missing:
+        raise RuntimeError(f"missing adapter parameters: {missing}")
+    return {
+        name: params[name].detach().cpu().clone()
+        for name in names
+    }
+
+
+@torch.no_grad()
+def _load_adapter_parameters(
+    model: torch.nn.Module,
+    state: dict[str, Tensor],
+) -> None:
+    params = dict(model.named_parameters())
+    missing = [name for name in state if name not in params]
+    if missing:
+        raise RuntimeError(f"missing adapter parameters: {missing}")
+    for name, value in state.items():
+        param = params[name]
+        param.copy_(value.to(device=param.device, dtype=param.dtype))
+
+
+def _use_shared_lora_policy_states(
+    cfg: TrainConfig,
+    model: torch.nn.Module,
+) -> bool:
+    return (
+        cfg.model.backbone_kind == "hf_qwen35_looped"
+        and cfg.model.hf_trainable_mode == "lora"
+        and bool(_adapter_parameter_names(model))
+    )
+
+
+@torch.no_grad()
+def _model_action_logprobs(
+    model: torch.nn.Module,
+    input_ids: Tensor,
+    actions: Tensor,
+    L: int,
+) -> Tensor:
+    logits = model(input_ids, L=L).logits
+    return gather_token_logprobs(logits, actions).detach()
 
 
 @torch.no_grad()
@@ -167,15 +229,26 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
     model = build_model(cfg.model).to(device=device, dtype=dtype)
     init_step = load_policy_checkpoint(cfg.grpo.init_ckpt, model)
 
-    ref = copy.deepcopy(model).to(device=device, dtype=dtype)
-    for p in ref.parameters():
-        p.requires_grad_(False)
-    ref.eval()
+    shared_lora_states = _use_shared_lora_policy_states(cfg, model)
+    adapter_names: list[str] = []
+    ref_adapter_state: dict[str, Tensor] | None = None
+    old_adapter_state: dict[str, Tensor] | None = None
+    ref: torch.nn.Module | None = None
+    old: torch.nn.Module | None = None
+    if shared_lora_states:
+        adapter_names = _adapter_parameter_names(model)
+        ref_adapter_state = _snapshot_adapter_parameters(model, adapter_names)
+        old_adapter_state = _snapshot_adapter_parameters(model, adapter_names)
+    else:
+        ref = copy.deepcopy(model).to(device=device, dtype=dtype)
+        for p in ref.parameters():
+            p.requires_grad_(False)
+        ref.eval()
 
-    old = copy.deepcopy(model).to(device=device, dtype=dtype)
-    for p in old.parameters():
-        p.requires_grad_(False)
-    old.eval()
+        old = copy.deepcopy(model).to(device=device, dtype=dtype)
+        for p in old.parameters():
+            p.requires_grad_(False)
+        old.eval()
 
     reward_model = _load_reward_model(cfg, device=device, dtype=dtype)
 
@@ -186,6 +259,15 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
         f"policy params: {model.num_parameters()/1e6:.1f}M · "
         f"init_step={init_step} · ref/old frozen"
     )
+
+    if shared_lora_states:
+        assert ref_adapter_state is not None
+        adapter_elems = sum(t.numel() for t in ref_adapter_state.values())
+        print(
+            "shared LoRA GRPO states: "
+            f"{len(adapter_names)} tensors, {adapter_elems/1e6:.1f}M params | "
+            "base/ref/old model weights share one GPU copy"
+        )
 
     offload_store = None
     if cfg.optim.kind == "nvme_adamw":
@@ -205,7 +287,11 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
     resume_step = 0
     if resume:
         resume_step = load_checkpoint(resume, model, opt)
-        old.load_state_dict(model.state_dict())
+        if shared_lora_states:
+            old_adapter_state = _snapshot_adapter_parameters(model, adapter_names)
+        else:
+            assert old is not None
+            old.load_state_dict(model.state_dict())
 
     rolling = RollingCheckpointer(
         run_dir,
@@ -243,17 +329,38 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
             max_length=cfg.model.max_seq_len // 2,
         ).input_ids[0]
 
-        full_ids, resp_mask, resp_lens = rollout_group(
-            old,
-            prompt_ids,
-            group_size=cfg.grpo.group_size,
-            L=cfg.grpo.rollout_L,
-            max_new_tokens=cfg.grpo.rollout_max_new_tokens,
-            temperature=cfg.grpo.rollout_temperature,
-            top_k=cfg.grpo.rollout_top_k,
-            pad_id=pad_id,
-            eos_id=eos_id,
-        )
+        if shared_lora_states:
+            assert old_adapter_state is not None
+            current_adapter_state = _snapshot_adapter_parameters(model, adapter_names)
+            try:
+                _load_adapter_parameters(model, old_adapter_state)
+                full_ids, resp_mask, resp_lens = rollout_group(
+                    model,
+                    prompt_ids,
+                    group_size=cfg.grpo.group_size,
+                    L=cfg.grpo.rollout_L,
+                    max_new_tokens=cfg.grpo.rollout_max_new_tokens,
+                    temperature=cfg.grpo.rollout_temperature,
+                    top_k=cfg.grpo.rollout_top_k,
+                    pad_id=pad_id,
+                    eos_id=eos_id,
+                )
+            finally:
+                _load_adapter_parameters(model, current_adapter_state)
+                model.train()
+        else:
+            assert old is not None
+            full_ids, resp_mask, resp_lens = rollout_group(
+                old,
+                prompt_ids,
+                group_size=cfg.grpo.group_size,
+                L=cfg.grpo.rollout_L,
+                max_new_tokens=cfg.grpo.rollout_max_new_tokens,
+                temperature=cfg.grpo.rollout_temperature,
+                top_k=cfg.grpo.rollout_top_k,
+                pad_id=pad_id,
+                eos_id=eos_id,
+            )
 
         prompt_len = prompt_ids.numel()
         responses: list[str] = []
@@ -301,21 +408,54 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
         target_ids = full_ids[:, 1:].contiguous()
         action_mask = resp_mask[:, 1:].contiguous()
 
-        logits_theta = model(input_ids, L=cfg.grpo.rollout_L).logits
-        with torch.no_grad():
-            logits_old = old(input_ids, L=cfg.grpo.rollout_L).logits
-            logits_ref = ref(input_ids, L=cfg.grpo.rollout_L).logits
+        if shared_lora_states:
+            assert old_adapter_state is not None
+            assert ref_adapter_state is not None
+            current_adapter_state = _snapshot_adapter_parameters(model, adapter_names)
+            try:
+                model.eval()
+                _load_adapter_parameters(model, old_adapter_state)
+                lp_old = _model_action_logprobs(
+                    model, input_ids, target_ids, cfg.grpo.rollout_L
+                )
+                _load_adapter_parameters(model, ref_adapter_state)
+                lp_ref = _model_action_logprobs(
+                    model, input_ids, target_ids, cfg.grpo.rollout_L
+                )
+            finally:
+                _load_adapter_parameters(model, current_adapter_state)
+                model.train()
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+            logits_theta = model(input_ids, L=cfg.grpo.rollout_L).logits
+            lp_theta = gather_token_logprobs(logits_theta, target_ids)
+            out: GRPOOutput = grpo_loss_from_action_logprobs(
+                lp_theta=lp_theta,
+                lp_old=lp_old,
+                lp_ref=lp_ref,
+                response_mask=action_mask,
+                advantages=adv,
+                clip_eps=cfg.grpo.clip_eps,
+                kl_beta=cfg.grpo.kl_beta,
+            )
+        else:
+            assert old is not None
+            assert ref is not None
+            logits_theta = model(input_ids, L=cfg.grpo.rollout_L).logits
+            with torch.no_grad():
+                logits_old = old(input_ids, L=cfg.grpo.rollout_L).logits
+                logits_ref = ref(input_ids, L=cfg.grpo.rollout_L).logits
 
-        out: GRPOOutput = grpo_loss(
-            logits_theta=logits_theta,
-            logits_old=logits_old,
-            logits_ref=logits_ref,
-            actions=target_ids,
-            response_mask=action_mask,
-            advantages=adv,
-            clip_eps=cfg.grpo.clip_eps,
-            kl_beta=cfg.grpo.kl_beta,
-        )
+            out = grpo_loss(
+                logits_theta=logits_theta,
+                logits_old=logits_old,
+                logits_ref=logits_ref,
+                actions=target_ids,
+                response_mask=action_mask,
+                advantages=adv,
+                clip_eps=cfg.grpo.clip_eps,
+                kl_beta=cfg.grpo.kl_beta,
+            )
 
         out.loss.backward()
         lr = lr_at(step, cfg)
@@ -326,7 +466,11 @@ def train_grpo(cfg: TrainConfig, resume: str | None = None) -> None:
         opt.zero_grad(set_to_none=True)
 
         if (step + 1) % max(1, cfg.grpo.mu_steps) == 0:
-            old.load_state_dict(model.state_dict())
+            if shared_lora_states:
+                old_adapter_state = _snapshot_adapter_parameters(model, adapter_names)
+            else:
+                assert old is not None
+                old.load_state_dict(model.state_dict())
 
         if step % cfg.log_every == 0:
             elapsed = time.time() - t0

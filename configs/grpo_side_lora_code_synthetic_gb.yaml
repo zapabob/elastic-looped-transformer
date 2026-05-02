@@ -28,7 +28,7 @@ grpo:
   group_size: 2
   rollout_temperature: 0.9
   rollout_top_k: 32
-  rollout_max_new_tokens: 192
+  rollout_max_new_tokens: 256
   rollout_L: 1
   clip_eps: 0.2
   kl_beta: 0.03

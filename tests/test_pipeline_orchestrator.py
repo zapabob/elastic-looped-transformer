@@ -135,6 +135,143 @@ def test_synthetic_gb_side_lora_long_profile_runs_sft_grpo_and_cv_eval() -> None
     ]
 
 
+def test_limited_benchmark_manifest_adds_cv_limit(tmp_path: Path) -> None:
+    mod = _load_pipeline_module()
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        yaml.safe_dump(
+            {
+                "benchmarks": [
+                    {
+                        "name": "math_val",
+                        "kind": "jsonl",
+                        "task": "exact_math",
+                        "path": "cases.jsonl",
+                        "prompt_field": "prompt",
+                        "reference_field": "reference",
+                    }
+                ]
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    out = mod._write_limited_benchmark_manifest(manifest, tmp_path / "limited", limit=500)
+
+    payload = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert payload["benchmarks"][0]["limit"] == 500
+    assert out.name == "manifest_limit500.yaml"
+
+
+def test_limited_benchmark_manifest_does_not_widen_existing_limit(tmp_path: Path) -> None:
+    mod = _load_pipeline_module()
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        yaml.safe_dump(
+            {
+                "benchmarks": [
+                    {
+                        "name": "tool_val",
+                        "kind": "jsonl",
+                        "task": "json_match",
+                        "path": "cases.jsonl",
+                        "prompt_field": "prompt",
+                        "reference_field": "reference",
+                        "limit": 200,
+                    }
+                ]
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    out = mod._write_limited_benchmark_manifest(manifest, tmp_path / "limited", limit=500)
+
+    payload = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert payload["benchmarks"][0]["limit"] == 200
+
+
+def test_side_lora_cv_eval_uses_limited_manifest(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    ckpt = tmp_path / "last.pt"
+    ckpt.write_bytes(b"checkpoint")
+    cases = tmp_path / "cases.jsonl"
+    cases.write_text(json.dumps({"prompt": "p", "reference": "r"}) + "\n", encoding="utf-8")
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        yaml.safe_dump(
+            {
+                "benchmarks": [
+                    {
+                        "name": "code_val",
+                        "kind": "jsonl",
+                        "task": "python_exec",
+                        "path": str(cases),
+                        "prompt_field": "prompt",
+                        "reference_field": "reference",
+                    }
+                ]
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    eval_root = tmp_path / "eval"
+    captured: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "EVAL_ROOT", eval_root)
+    monkeypatch.setattr(mod, "SYNTHETIC_GB_SIDE_LORA_CV_LIMIT", 500)
+    monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
+
+    mod._run_side_lora_cv_eval(
+        mod.PipelineContext(dry_run=True),
+        name="code_sft",
+        ckpt=ckpt,
+        manifest=manifest,
+        max_new_tokens=192,
+    )
+
+    assert len(captured) == 1
+    cmd = captured[0]
+    manifest_arg = Path(cmd[cmd.index("--benchmark-manifest") + 1])
+    payload = yaml.safe_load(manifest_arg.read_text(encoding="utf-8"))
+    assert manifest_arg.name == "manifest_limit500.yaml"
+    assert payload["benchmarks"][0]["limit"] == 500
+
+
+def test_side_lora_cv_eval_uses_lane_token_budgets(monkeypatch) -> None:
+    mod = _load_pipeline_module()
+    captured: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "file_nonempty", lambda _path: True)
+    monkeypatch.setattr(
+        mod,
+        "_write_limited_benchmark_manifest",
+        lambda manifest, _out_dir, *, limit: manifest,
+    )
+    monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
+
+    mod.stage_synthetic_gb_side_lora_cv_eval(mod.PipelineContext(dry_run=True))
+
+    budgets = {
+        Path(cmd[cmd.index("--run-dir") + 1]).name: int(
+            cmd[cmd.index("--bench-max-new-tokens") + 1]
+        )
+        for cmd in captured
+    }
+    assert budgets["code_sft"] == 256
+    assert budgets["code_grpo"] == 256
+    assert budgets["math_sft"] == 128
+    assert budgets["math_grpo"] == 128
+    assert budgets["tool_sft"] == 128
+    assert budgets["tool_grpo"] == 128
+
+
 def test_synthetic_v1_seed_stage_requires_gb_target_before_skip(
     monkeypatch,
     tmp_path: Path,
@@ -469,6 +606,8 @@ def test_pipeline_subprocess_env_prefers_h_drive(monkeypatch, tmp_path: Path) ->
     assert env["TORCH_HOME"] == str(cache_root / "torch")
     assert env["CUDA_CACHE_PATH"] == str(cache_root / "cuda")
     assert env["PYTHONPYCACHEPREFIX"] == str(cache_root / "pycache")
+    assert env["PYTHONIOENCODING"] == "utf-8"
+    assert env["PYTHONUTF8"] == "1"
     assert (cache_root / "hf").is_dir()
 
 
@@ -483,6 +622,8 @@ def test_vsdev_command_sets_h_drive_cache_env() -> None:
     assert "set TEMP=" in cmd[2]
     assert "set CUDA_CACHE_PATH=" in cmd[2]
     assert "set PYTHONPYCACHEPREFIX=" in cmd[2]
+    assert "set PYTHONIOENCODING=utf-8" in cmd[2]
+    assert "set PYTHONUTF8=1" in cmd[2]
 
 
 def test_training_run_complete_detects_final_checkpoint(tmp_path: Path) -> None:
@@ -769,6 +910,8 @@ def test_side_lora_configs_avoid_bitsandbytes_and_nvme_state() -> None:
         if "grpo_side_lora" in rel:
             assert payload["grpo"]["kl_beta"] > 0, rel
             assert payload["grpo"]["rollout_L"] == 1, rel
+            expected_rollout = 256 if "_code_" in rel else 128
+            assert payload["grpo"]["rollout_max_new_tokens"] == expected_rollout, rel
 
 
 def test_huihui_35b_distill_config_is_oom_conservative() -> None:

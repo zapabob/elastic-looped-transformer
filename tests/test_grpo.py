@@ -17,6 +17,7 @@ from elt_lm.grpo import (
     gather_token_logprobs,
     group_advantage,
     grpo_loss,
+    grpo_loss_from_action_logprobs,
     kl_unbiased,
 )
 from elt_lm.verifiers import (
@@ -112,6 +113,41 @@ def test_grpo_loss_shapes_and_clip() -> None:
     # loss is backprop-able
     out.loss.backward()
     assert logits_theta.grad is not None
+
+
+def test_grpo_loss_from_action_logprobs_matches_full_logits_api() -> None:
+    torch.manual_seed(1)
+    B, T, V = 3, 5, 11
+    logits_theta = torch.randn(B, T, V, requires_grad=True)
+    logits_old = torch.randn(B, T, V)
+    logits_ref = torch.randn(B, T, V)
+    actions = torch.randint(0, V, (B, T))
+    mask = torch.ones(B, T)
+    advantages = torch.tensor([1.0, 0.0, -1.0])
+
+    full = grpo_loss(
+        logits_theta=logits_theta,
+        logits_old=logits_old,
+        logits_ref=logits_ref,
+        actions=actions,
+        response_mask=mask,
+        advantages=advantages,
+        clip_eps=0.2,
+        kl_beta=0.05,
+    )
+    lowmem = grpo_loss_from_action_logprobs(
+        lp_theta=gather_token_logprobs(logits_theta, actions),
+        lp_old=gather_token_logprobs(logits_old, actions),
+        lp_ref=gather_token_logprobs(logits_ref, actions),
+        response_mask=mask,
+        advantages=advantages,
+        clip_eps=0.2,
+        kl_beta=0.05,
+    )
+
+    assert torch.allclose(lowmem.loss, full.loss, atol=1e-6)
+    assert torch.allclose(lowmem.policy_loss, full.policy_loss, atol=1e-6)
+    assert torch.allclose(lowmem.kl, full.kl, atol=1e-6)
 
 
 def test_grpo_loss_clips_when_policy_diverges() -> None:
