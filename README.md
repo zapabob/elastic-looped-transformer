@@ -1,3 +1,16 @@
+---
+license: apache-2.0
+library_name: transformers
+pipeline_tag: text-generation
+base_model: huihui-ai/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated
+tags:
+  - elastic-looped-transformer
+  - ilsd
+  - grpo
+  - self-distillation
+  - synthetic-data
+---
+
 # elastic-looped-transformer
 
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
