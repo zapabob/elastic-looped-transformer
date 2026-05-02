@@ -29,6 +29,15 @@ def test_generate_v2_hard_examples_require_loop_depth_and_failures() -> None:
     code_examples = generate_lane_examples("code", 6)
     assert {example.task.target_kind for example in code_examples} == {"python_exec"}
     assert len({example.example["user_request"] for example in code_examples}) == 6
+    assert len({example.task.domain for example in code_examples}) == 6
+
+    math_examples = generate_lane_examples("math", 12)
+    assert len({example.task.domain for example in math_examples}) == 6
+    assert {
+        failure.label
+        for example in math_examples
+        for failure in example.failures
+    } == {"skipped_intermediate"}
 
 
 def test_build_synthetic_v2_bundle_writes_hard_lanes(tmp_path: Path) -> None:
@@ -79,4 +88,3 @@ def test_build_synthetic_v2_bundle_writes_hard_lanes(tmp_path: Path) -> None:
         assert all(row["expected_score"] == 0.0 for row in failures)
         assert all(row["observed_score"] == 0.0 for row in failures)
         assert all(row["bad_response"] for row in failures)
-

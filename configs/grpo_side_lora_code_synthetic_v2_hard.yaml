@@ -36,7 +36,7 @@ grpo:
   reward_model_ckpt: ""
   reward_alpha: 0.0
   verifier_beta: 1.0
-  prompt_budget: 128
+  prompt_budget: 1024
 
 data:
   train_bin: H:/elt_data/posttrain_synthetic/code/v1_gb/bin/train.bin

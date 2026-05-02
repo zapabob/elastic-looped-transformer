@@ -85,7 +85,7 @@ def _frac(value: Fraction) -> str:
 
 def _code_examples(count: int) -> Iterable[HardSyntheticExample]:
     for i in range(count):
-        kind = i % 3
+        kind = i % 6
         if kind == 0:
             grace = 1 + (i % 4)
             events = [
@@ -193,10 +193,10 @@ def _code_examples(count: int) -> Iterable[HardSyntheticExample]:
                 },
                 failures=(FailureExample("missing_negative_guard", _code_response(bad), "Allows impossible negative inventory and keeps unsorted zero entries."),),
             )
-        else:
+        elif kind == 2:
             tasks = [("extract", 3), ("normalize", 4), ("audit", 2), ("load", 5)]
             capacity = 7 + (i % 2)
-            expected = [["extract", "normalize"], ["audit", "load"]] if capacity == 7 else [["extract", "normalize"], ["audit", "load"]]
+            expected = [["extract", "normalize"], ["audit", "load"]]
             code = (
                 "def plan_batches(tasks: list[tuple[str, int]], capacity: int) -> list[list[str]]:\n"
                 "    if capacity <= 0:\n"
@@ -246,11 +246,182 @@ def _code_examples(count: int) -> Iterable[HardSyntheticExample]:
                 },
                 failures=(FailureExample("ignores_capacity", _code_response(bad), "Places every task in one batch and never rejects oversize tasks."),),
             )
+        elif kind == 3:
+            sessions = [
+                {"user": 1, "start": 0, "end": 3},
+                {"user": 2, "start": 2, "end": 5},
+                {"user": 1, "start": 4, "end": 6},
+                {"user": 3, "start": 5, "end": 7 + (i % 2)},
+            ]
+            days = [2, 4, 6]
+            expected = {2: 2, 4: 2, 6: 1}
+            code = (
+                "def count_active_users(sessions: list[dict[str, int]], days: list[int]) -> dict[int, int]:\n"
+                "    normalized: list[tuple[int, int, int]] = []\n"
+                "    for session in sessions:\n"
+                "        user = session['user']\n"
+                "        start = session['start']\n"
+                "        end = session['end']\n"
+                "        if end <= start:\n"
+                "            raise ValueError('session end must be after start')\n"
+                "        normalized.append((user, start, end))\n"
+                "    result: dict[int, int] = {}\n"
+                "    for day in days:\n"
+                "        active = {user for user, start, end in normalized if start <= day < end}\n"
+                "        result[day] = len(active)\n"
+                "    return result"
+            )
+            verifier = (
+                f"assert count_active_users({sessions!r}, {days!r}) == {expected!r}\n"
+                "try:\n"
+                "    count_active_users([{'user': 1, 'start': 3, 'end': 3}], [3])\n"
+                "except ValueError as exc:\n"
+                "    assert str(exc) == 'session end must be after start'\n"
+                "else:\n"
+                "    raise AssertionError('expected invalid session error')"
+            )
+            bad = (
+                "def count_active_users(sessions: list[dict[str, int]], days: list[int]) -> dict[int, int]:\n"
+                "    result: dict[int, int] = {}\n"
+                "    for day in days:\n"
+                "        result[day] = sum(1 for item in sessions if item['start'] <= day <= item['end'])\n"
+                "    return result"
+            )
+            yield HardSyntheticExample(
+                task=_task("code", "active_user_session_counts", "Count unique active users at requested day boundaries with half-open sessions and validation.", "python_exec", i),
+                example={
+                    "user_request": (
+                        "Implement count_active_users(sessions, days). Validate that every session has end "
+                        "strictly after start, treat sessions as half-open [start, end), count unique users "
+                        f"active on each requested day, and return a day-to-count dictionary. Synthetic v2 id {i}."
+                    ),
+                    "assistant_code": code,
+                    "verifier_snippet": verifier,
+                    "language": "python",
+                },
+                failures=(FailureExample("inclusive_end_and_duplicate_sessions", _code_response(bad), "Counts sessions instead of unique users and treats the end boundary as active."),),
+            )
+        elif kind == 4:
+            transfers = [("alice", "bob", 5), ("carol", "alice", 2 + (i % 2)), ("bob", "carol", 1)]
+            expected = {
+                "alice": -3 + (i % 2),
+                "bob": 4,
+                "carol": -1 - (i % 2),
+            }
+            code = (
+                "def net_transfer_balances(transfers: list[tuple[str, str, int]]) -> dict[str, int]:\n"
+                "    balances: dict[str, int] = {}\n"
+                "    for source, target, amount in transfers:\n"
+                "        if source == target:\n"
+                "            raise ValueError('self transfer is not allowed')\n"
+                "        if amount <= 0:\n"
+                "            raise ValueError('transfer amount must be positive')\n"
+                "        balances[source] = balances.get(source, 0) - amount\n"
+                "        balances[target] = balances.get(target, 0) + amount\n"
+                "    return {name: balances[name] for name in sorted(balances) if balances[name] != 0}"
+            )
+            verifier = (
+                f"assert net_transfer_balances({transfers!r}) == {expected!r}\n"
+                "try:\n"
+                "    net_transfer_balances([('alice', 'alice', 1)])\n"
+                "except ValueError as exc:\n"
+                "    assert str(exc) == 'self transfer is not allowed'\n"
+                "else:\n"
+                "    raise AssertionError('expected self-transfer error')"
+            )
+            bad = (
+                "def net_transfer_balances(transfers: list[tuple[str, str, int]]) -> dict[str, int]:\n"
+                "    balances: dict[str, int] = {}\n"
+                "    for source, _target, amount in transfers:\n"
+                "        balances[source] = balances.get(source, 0) - amount\n"
+                "    return balances"
+            )
+            yield HardSyntheticExample(
+                task=_task("code", "net_transfer_balances", "Compute sorted net balances from directed transfers while rejecting impossible transfers.", "python_exec", i),
+                example={
+                    "user_request": (
+                        "Implement net_transfer_balances(transfers). Each transfer is (source, target, amount). "
+                        "Reject self-transfers and non-positive amounts, debit the source, credit the target, "
+                        f"drop zero balances, and return names sorted alphabetically. Synthetic v2 id {i}."
+                    ),
+                    "assistant_code": code,
+                    "verifier_snippet": verifier,
+                    "language": "python",
+                },
+                failures=(FailureExample("debits_without_credits", _code_response(bad), "Debits only the source side and skips validation of impossible transfers."),),
+            )
+        else:
+            threshold = 5 + (i % 2)
+            max_gap = 1 + (i % 3)
+            events = [
+                {"sensor": 2, "start": 0, "end": 2, "severity": threshold},
+                {"sensor": 2, "start": 2 + max_gap, "end": 4 + max_gap, "severity": threshold + 1},
+                {"sensor": 1, "start": 1, "end": 2, "severity": threshold - 1},
+                {"sensor": 1, "start": 3, "end": 5, "severity": threshold + 2},
+            ]
+            expected = {1: [(3, 5)], 2: [(0, 4 + max_gap)]}
+            code = (
+                "def group_anomaly_windows(events: list[dict[str, int]], threshold: int, max_gap: int) -> dict[int, list[tuple[int, int]]]:\n"
+                "    if max_gap < 0:\n"
+                "        raise ValueError('max_gap must be nonnegative')\n"
+                "    by_sensor: dict[int, list[tuple[int, int]]] = {}\n"
+                "    for event in events:\n"
+                "        start = event['start']\n"
+                "        end = event['end']\n"
+                "        if end < start:\n"
+                "            raise ValueError('event end before start')\n"
+                "        if event['severity'] >= threshold:\n"
+                "            by_sensor.setdefault(event['sensor'], []).append((start, end))\n"
+                "    result: dict[int, list[tuple[int, int]]] = {}\n"
+                "    for sensor in sorted(by_sensor):\n"
+                "        merged: list[tuple[int, int]] = []\n"
+                "        cur_start, cur_end = sorted(by_sensor[sensor])[0]\n"
+                "        for start, end in sorted(by_sensor[sensor])[1:]:\n"
+                "            if start - cur_end <= max_gap:\n"
+                "                cur_end = max(cur_end, end)\n"
+                "            else:\n"
+                "                merged.append((cur_start, cur_end))\n"
+                "                cur_start, cur_end = start, end\n"
+                "        merged.append((cur_start, cur_end))\n"
+                "        result[sensor] = merged\n"
+                "    return result"
+            )
+            verifier = (
+                f"assert group_anomaly_windows({events!r}, {threshold}, {max_gap}) == {expected!r}\n"
+                "try:\n"
+                "    group_anomaly_windows([{'sensor': 1, 'start': 4, 'end': 3, 'severity': 9}], 5, 1)\n"
+                "except ValueError as exc:\n"
+                "    assert str(exc) == 'event end before start'\n"
+                "else:\n"
+                "    raise AssertionError('expected invalid event error')"
+            )
+            bad = (
+                "def group_anomaly_windows(events: list[dict[str, int]], threshold: int, max_gap: int) -> dict[int, list[tuple[int, int]]]:\n"
+                "    result: dict[int, list[tuple[int, int]]] = {}\n"
+                "    for event in events:\n"
+                "        if event['severity'] >= threshold:\n"
+                "            result.setdefault(event['sensor'], []).append((event['start'], event['end']))\n"
+                "    return result"
+            )
+            yield HardSyntheticExample(
+                task=_task("code", "anomaly_window_grouping", "Filter high-severity sensor events, validate windows, and merge nearby anomaly intervals.", "python_exec", i),
+                example={
+                    "user_request": (
+                        "Implement group_anomaly_windows(events, threshold, max_gap). Keep only events whose "
+                        "severity is at least threshold, validate impossible windows, group by sensor, merge "
+                        f"windows whose gap is at most max_gap, and return sensors in sorted order. Synthetic v2 id {i}."
+                    ),
+                    "assistant_code": code,
+                    "verifier_snippet": verifier,
+                    "language": "python",
+                },
+                failures=(FailureExample("filters_without_merging", _code_response(bad), "Filters by severity but leaves adjacent anomaly windows unmerged and unvalidated."),),
+            )
 
 
 def _math_examples(count: int) -> Iterable[HardSyntheticExample]:
     for i in range(count):
-        kind = i % 3
+        kind = i % 6
         if kind == 0:
             prior = Fraction(1 + (i % 3), 10)
             hit = Fraction(3, 4)
@@ -292,7 +463,7 @@ def _math_examples(count: int) -> Iterable[HardSyntheticExample]:
                 f"Unroll the recurrence through every loop: {trace}. The final loop state is {trace[-1]}, "
                 f"then the readout correction subtracts {i % 3 + 1}, giving {answer}."
             )
-        else:
+        elif kind == 2:
             total = 60 + i
             a_count = 25 + (i % 7)
             b_count = 22 + (i % 5)
@@ -311,6 +482,68 @@ def _math_examples(count: int) -> Iterable[HardSyntheticExample]:
             reasoning = (
                 f"Use inclusion-exclusion before the second stage: |A union B|={a_count}+{b_count}-{both}={union}. "
                 f"Thus P(A union B)={union}/{total}. Multiplying by P(C | A union B)={_frac(c_given_union)} gives {answer}."
+            )
+        elif kind == 3:
+            initial = Fraction(1 + (i % 3), 5)
+            stay_active = Fraction(3, 5)
+            recover = Fraction(1, 4)
+            audit = Fraction(1, 2)
+            p1 = initial * stay_active + (1 - initial) * recover
+            p2 = p1 * stay_active + (1 - p1) * recover
+            final = p2 * audit
+            answer = _frac(final)
+            wrong = f"{float(p1 * audit):.6f}"
+            question = (
+                f"A service starts unhealthy with probability {_frac(initial)}. Each loop keeps an unhealthy "
+                f"service unhealthy with probability {_frac(stay_active)}, while a healthy service becomes "
+                f"unhealthy with probability {_frac(recover)}. After two loops, an audit catches an unhealthy "
+                f"service with probability {_frac(audit)}. What exact probability does the audit catch it?"
+            )
+            reasoning = (
+                f"After one loop p1={_frac(initial)}*{_frac(stay_active)}+(1-{_frac(initial)})*{_frac(recover)}={_frac(p1)}. "
+                f"After the second loop p2={_frac(p1)}*{_frac(stay_active)}+(1-{_frac(p1)})*{_frac(recover)}={_frac(p2)}. "
+                f"Multiplying by the audit catch probability {_frac(audit)} gives {answer}."
+            )
+        elif kind == 4:
+            units = 12 + (i % 7)
+            base = 20 + (i % 5)
+            first = 5
+            low_rate = 3
+            high_rate = 5
+            discount = Fraction(9, 10)
+            subtotal = base + min(units, first) * low_rate + max(0, units - first) * high_rate
+            final = Fraction(subtotal) * discount + 4
+            answer = _frac(final)
+            wrong = str(subtotal + 4)
+            question = (
+                f"A metered job has base cost {base}. The first {first} units cost {low_rate} each and the "
+                f"remaining units cost {high_rate} each. For {units} units, apply a 10% discount to the metered "
+                "subtotal and then add a fixed audit fee of 4. What exact final cost is charged?"
+            )
+            reasoning = (
+                f"The tiered subtotal is {base}+{first}*{low_rate}+({units}-{first})*{high_rate}={subtotal}. "
+                f"The discount applies before the audit fee: {subtotal}*9/10+4={answer}."
+            )
+        else:
+            scores = [3 + (i % 4), 2 + (i % 3), 5, 4]
+            weights = [1, 2, 3, 4]
+            dropped_index = scores.index(min(scores))
+            kept = [(score, weight) for idx, (score, weight) in enumerate(zip(scores, weights)) if idx != dropped_index]
+            numerator = sum(score * weight for score, weight in kept)
+            denominator = sum(weight for _score, weight in kept)
+            final = Fraction(numerator, denominator) * Fraction(3, 2)
+            answer = _frac(final)
+            shortcut = Fraction(sum(score * weight for score, weight in zip(scores, weights)), sum(weights)) * Fraction(3, 2)
+            wrong = f"{float(shortcut):.6f}"
+            question = (
+                f"Scores {scores} have weights {weights}. Drop the single lowest score, compute the weighted "
+                "mean of the remaining entries, then multiply the result by 3/2 as the loop readout gain. "
+                "What exact value is read out?"
+            )
+            reasoning = (
+                f"The lowest score is at index {dropped_index}, so the kept weighted numerator is {numerator} "
+                f"and the kept weight sum is {denominator}. The weighted mean is {numerator}/{denominator}; "
+                f"after multiplying by 3/2 the readout is {answer}."
             )
         yield HardSyntheticExample(
             task=_task("math", f"multi_step_math_{kind}", "Exact multi-step arithmetic with an explicit intermediate state.", "exact_math", i),
@@ -602,7 +835,7 @@ def build_synthetic_v2_bundle(
 def cli() -> None:
     parser = argparse.ArgumentParser(description="Build hard synthetic v2 ELT/GRPO datasets.")
     parser.add_argument("--output-root", type=Path, default=Path("H:/elt_data/synthetic_v2_hard"))
-    parser.add_argument("--records-per-lane", type=int, default=128)
+    parser.add_argument("--records-per-lane", type=int, default=1024)
     parser.add_argument("--val-ratio", type=float, default=0.25)
     parser.add_argument("--lanes", nargs="*", default=list(LANES), choices=list(LANES))
     args = parser.parse_args()

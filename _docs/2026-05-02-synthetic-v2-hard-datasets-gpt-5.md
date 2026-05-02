@@ -71,7 +71,32 @@ Passing:
 
 ## Next Session Notes
 
-- Use `uv run --no-sync python -m elt_lm.synthetic_v2_hard --output-root H:/elt_data/synthetic_v2_hard --records-per-lane 128 --val-ratio 0.25` to refresh the current bundle.
+- Use `uv run --no-sync python -m elt_lm.synthetic_v2_hard --output-root H:/elt_data/synthetic_v2_hard --records-per-lane 1024 --val-ratio 0.25` to refresh the current bundle.
 - Use `uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-hard` to run the idempotent stage.
 - Use `uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-hard-grpo` after the current GPU pipeline stage is finished; it intentionally uses separate v2-hard run dirs.
 - If only the v2 data refresh is needed while a GPU job is active, run the build-only profile and skip the GRPO profile until GPU memory is free.
+
+## 2026-05-02 Follow-up: 1k/Lane Expansion
+
+Expanded the default and pipeline target from 128 to 1024 records per lane.
+
+Additional code `python_exec` templates:
+
+- `active_user_session_counts`
+- `net_transfer_balances`
+- `anomaly_window_grouping`
+
+Additional math multi-step templates:
+
+- two-step Markov/audit probability
+- tiered cost with discount-before-fee ordering
+- drop-lowest weighted readout with loop gain
+
+Regenerated `H:/elt_data/synthetic_v2_hard` at 1024 records per lane:
+
+- Correct SFT records: 4096 total.
+- Failure contrast records: 4096 total.
+- Train/val split: 768 train and 256 val per lane.
+- Verifier pass rate: 1.0 for all correct records in all lanes.
+- Failure expected-zero rate: 1.0 for all lanes.
+- Unique text ratio: 1.0 for all lanes.
