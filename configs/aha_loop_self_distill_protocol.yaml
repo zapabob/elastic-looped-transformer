@@ -35,6 +35,12 @@ failure_modes:
       - KL-regularized GRPO after distillation
 
 phases:
+  - id: l2_code_ilsd_intro
+    command: uv run --no-sync elt-train --config configs/qwen35_4b_side_lora_code_aha_ilsd_l2.yaml --resume H:/elt_data/runs/qwen35_4b_side_lora_code_sft_synthetic_gb/last.pt
+    purpose: Stabilize code execution reasoning with L=2 teacher/student internal distillation.
+    proceed_when:
+      - val_loss is non-increasing over the last two evals
+      - python_exec bridge probes show non-zero pass rate
   - id: l2_math_ilsd_intro
     command: uv run --no-sync elt-train --config configs/qwen35_4b_side_lora_math_aha_ilsd_l2.yaml --resume H:/elt_data/runs/qwen35_4b_side_lora_math_sft_synthetic_gb/last.pt
     purpose: Stabilize math reasoning with L=2 teacher/student internal distillation.
@@ -49,6 +55,18 @@ phases:
       - val_loss is non-increasing over the last two evals
       - format behavior is preserved on structured probes
       - no checkpoint or CUDA instability
+  - id: l2_tool_ilsd_intro
+    command: uv run --no-sync elt-train --config configs/qwen35_4b_side_lora_tool_aha_ilsd_l2.yaml --resume H:/elt_data/runs/qwen35_4b_side_lora_tool_sft_synthetic_gb/last.pt
+    purpose: Stabilize structured tool-call JSON behavior with L=2 teacher/student internal distillation.
+    proceed_when:
+      - val_loss is non-increasing over the last two evals
+      - json_match bridge probes show non-zero pass rate
+  - id: l3_code_stretch
+    command: uv run --no-sync elt-train --config configs/qwen35_4b_side_lora_code_aha_ilsd_l3.yaml --resume H:/elt_data/runs/qwen35_4b_side_lora_code_aha_ilsd_l2/last.pt
+    purpose: Add one loop of pressure only after the L=2 adapter is stable.
+    proceed_when:
+      - L3 eval at L=3 is better than L=1 on held-out bridge code prompts
+      - entropy floor and local consistency terms stay bounded
   - id: l3_math_stretch
     command: uv run --no-sync elt-train --config configs/qwen35_4b_side_lora_math_aha_ilsd_l3.yaml --resume H:/elt_data/runs/qwen35_4b_side_lora_math_aha_ilsd_l2/last.pt
     purpose: Add one loop of pressure only after the L=2 adapter is stable.
@@ -61,6 +79,12 @@ phases:
     proceed_when:
       - L3 eval at L=3 is better than L=1 on held-out bridge STEM prompts
       - entropy floor and local consistency terms stay bounded
+  - id: l3_tool_stretch
+    command: uv run --no-sync elt-train --config configs/qwen35_4b_side_lora_tool_aha_ilsd_l3.yaml --resume H:/elt_data/runs/qwen35_4b_side_lora_tool_aha_ilsd_l2/last.pt
+    purpose: Add one loop of pressure only after the L=2 adapter is stable.
+    proceed_when:
+      - L3 eval at L=3 is better than L=1 on held-out bridge tool-use prompts
+      - entropy floor and local consistency terms stay bounded
   - id: verified_output_self_distill
     command: generate high-L outputs, keep only verifier-passing traces, mix them with replay anchors, then SFT for a short adapter refresh
     purpose: Convert the useful high-loop outputs into low-loop behavior without accepting hallucinated traces.
@@ -69,9 +93,13 @@ phases:
       - replay share is at least 25 percent
       - L=1 validation does not regress
   - id: bridge_grpo_after_distill
-    command: run math/stem bridge GRPO configs after the verifier fix and adapter refresh
+    command: run code/math/stem/tool bridge GRPO configs after the verifier fix and adapter refresh
+    config_files:
+      - configs/grpo_side_lora_code_synthetic_v2_bridge.yaml
+      - configs/grpo_side_lora_math_synthetic_v2_bridge.yaml
+      - configs/grpo_side_lora_stem_synthetic_v2_bridge.yaml
+      - configs/grpo_side_lora_tool_synthetic_v2_bridge.yaml
     purpose: Use GRPO for reward separation after looped self-distillation has made positive samples reachable.
     proceed_when:
       - reward_std remains non-zero
       - correct_rate is not stuck at zero over a 16-step window
-

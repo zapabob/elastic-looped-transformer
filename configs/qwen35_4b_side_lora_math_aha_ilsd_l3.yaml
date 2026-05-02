@@ -1,4 +1,6 @@
 # Math lane L=3 stretch stage. Resume from the L=2 aha adapter.
+# Kept deliberately short/conservative because code L3 showed large
+# teacher/student divergence late in the run.
 
 model:
   backbone_kind: hf_qwen35_looped
@@ -15,17 +17,17 @@ model:
   hf_lora_rank: 16
   hf_lora_alpha: 32.0
   hf_lora_dropout: 0.03
-  hf_lora_top_layers: 8
+  hf_lora_top_layers: 0
   hf_save_adapter_only: true
   hf_adapter_base_ckpt: H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt
   grad_checkpoint: false
 
 ilsd:
   enabled: true
-  lambda_init: 0.7
-  lambda_final: 0.08
-  lambda_anneal_steps: 160
-  warmup_steps: 16
+  lambda_init: 0.35
+  lambda_final: 0.03
+  lambda_anneal_steps: 80
+  warmup_steps: 8
   strict_student_below_teacher: true
   distill_teacher_temp: 1.25
   distill_uniform_mix: 0.001
@@ -56,17 +58,17 @@ beta1: 0.9
 beta2: 0.95
 eps: 1.0e-8
 grad_clip: 0.4
-warmup_steps: 16
-total_steps: 160
+warmup_steps: 8
+total_steps: 80
 lr_schedule: cosine
 micro_batch_size: 1
 grad_accum_steps: 1
 dtype: bf16
 log_every: 5
-eval_every: 40
-save_every: 80
+eval_every: 20
+eval_batches: 2
+save_every: 40
 run_dir: H:/elt_data/runs/qwen35_4b_side_lora_math_aha_ilsd_l3
 rolling_ckpt_interval_sec: 600
 rolling_ckpt_keep: 3
 seed: 46121
-

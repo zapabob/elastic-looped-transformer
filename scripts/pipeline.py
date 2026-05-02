@@ -17,6 +17,7 @@ Manual checks:
     uv run --no-sync python scripts/pipeline.py --profile v1-pretrain-posttrain --dry-run
     uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-hard --dry-run
     uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-hard-grpo --dry-run
+    uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-bridge-ilsd --dry-run
     uv run --no-sync python scripts/pipeline.py --profile synthetic-gb-side-lora-long --dry-run
     uv run --no-sync python scripts/pipeline.py --only 00_pretrain_clean --dry-run
     uv run --no-sync python scripts/pipeline.py --no-start-long-train
@@ -317,14 +318,23 @@ def build_training_command(
     *,
     entrypoint: str,
     initial_resume: Path | None = None,
+    initial_resume_mode: str = "resume",
     use_vsdev: bool = False,
 ) -> CommandPlan:
     run_dir = train_run_dir(config_path)
     last = run_dir / "last.pt"
     cmd = ["uv", "run", "--no-sync", entrypoint, "--config", config_path]
-    resume = last if last.exists() and last.stat().st_size > 0 else initial_resume
+    resume = last if last.exists() and last.stat().st_size > 0 else None
     if resume is not None:
         cmd += ["--resume", str(resume)]
+    elif initial_resume is not None:
+        if initial_resume_mode == "init":
+            cmd += ["--init-from", str(initial_resume)]
+        elif initial_resume_mode == "resume":
+            cmd += ["--resume", str(initial_resume)]
+        else:
+            raise PipelineError(f"unsupported initial resume mode: {initial_resume_mode}")
+        resume = initial_resume
     if use_vsdev:
         cmd = vsdev_command(cmd)
     return CommandPlan(cmd=cmd, run_dir=run_dir, resume_path=resume, long_running=True)
@@ -425,6 +435,7 @@ def run_training_config(
     *,
     entrypoint: str,
     initial_resume: Path | None = None,
+    initial_resume_mode: str = "resume",
     use_vsdev: bool = False,
     cleanup_offload_on_success: bool = False,
 ) -> None:
@@ -432,6 +443,7 @@ def run_training_config(
         config_path,
         entrypoint=entrypoint,
         initial_resume=initial_resume,
+        initial_resume_mode=initial_resume_mode,
         use_vsdev=use_vsdev,
     )
     print(f"  run_dir : {plan.run_dir}")
@@ -780,6 +792,29 @@ def stage_build_synthetic_v2_hard(ctx: PipelineContext) -> None:
         "--val-ratio", "0.25",
     ]
     run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_build_synthetic_v2_bridge(ctx: PipelineContext) -> None:
+    required_outputs = [
+        SYNTHETIC_V2_HARD_ROOT / "code" / "benchmarks" / "synthetic_v2_bridge_code_val_cases.jsonl",
+        SYNTHETIC_V2_HARD_ROOT / "math" / "benchmarks" / "synthetic_v2_bridge_math_val_cases.jsonl",
+        SYNTHETIC_V2_HARD_ROOT
+        / "stem_reasoning"
+        / "benchmarks"
+        / "synthetic_v2_bridge_stem_reasoning_val_cases.jsonl",
+        SYNTHETIC_V2_HARD_ROOT / "tool_use" / "benchmarks" / "synthetic_v2_bridge_tool_use_val_cases.jsonl",
+    ]
+    required_summaries = [path.with_suffix(".summary.json") for path in required_outputs]
+    if all(file_nonempty(path) for path in required_outputs + required_summaries):
+        print("  skip existing synthetic v2 bridge prompts")
+        return
+    commands = [
+        ["uv", "run", "--no-sync", "elt-build-synthetic-v2-code-bridge", "--total-cases", "256"],
+        ["uv", "run", "--no-sync", "elt-build-synthetic-v2-reasoning-bridge", "--total-cases", "256"],
+        ["uv", "run", "--no-sync", "elt-build-synthetic-v2-tool-bridge", "--total-cases", "256"],
+    ]
+    for cmd in commands:
+        run_subprocess(cmd, dry_run=ctx.dry_run)
 
 
 def stage_hauhaucs_v1_multilane_distill(ctx: PipelineContext) -> None:
@@ -1247,6 +1282,51 @@ SIDE_LORA_SYNTHETIC_V2_HARD_GRPO_CONFIGS: list[str] = [
     "configs/grpo_side_lora_tool_synthetic_v2_hard.yaml",
 ]
 
+SIDE_LORA_SYNTHETIC_V2_AHA_ILSD_L2_CONFIGS: list[tuple[str, Path]] = [
+    (
+        "configs/qwen35_4b_side_lora_code_aha_ilsd_l2.yaml",
+        Path("H:/elt_data/runs/qwen35_4b_side_lora_code_sft_synthetic_gb/last.pt"),
+    ),
+    (
+        "configs/qwen35_4b_side_lora_math_aha_ilsd_l2.yaml",
+        Path("H:/elt_data/runs/qwen35_4b_side_lora_math_sft_synthetic_gb/last.pt"),
+    ),
+    (
+        "configs/qwen35_4b_side_lora_stem_aha_ilsd_l2.yaml",
+        Path("H:/elt_data/runs/qwen35_4b_side_lora_stem_sft_synthetic_gb/last.pt"),
+    ),
+    (
+        "configs/qwen35_4b_side_lora_tool_aha_ilsd_l2.yaml",
+        Path("H:/elt_data/runs/qwen35_4b_side_lora_tool_sft_synthetic_gb/last.pt"),
+    ),
+]
+
+SIDE_LORA_SYNTHETIC_V2_AHA_ILSD_L3_CONFIGS: list[tuple[str, Path]] = [
+    (
+        "configs/qwen35_4b_side_lora_code_aha_ilsd_l3.yaml",
+        Path("H:/elt_data/runs/qwen35_4b_side_lora_code_aha_ilsd_l2/last.pt"),
+    ),
+    (
+        "configs/qwen35_4b_side_lora_math_aha_ilsd_l3.yaml",
+        Path("H:/elt_data/runs/qwen35_4b_side_lora_math_aha_ilsd_l2/last.pt"),
+    ),
+    (
+        "configs/qwen35_4b_side_lora_stem_aha_ilsd_l3.yaml",
+        Path("H:/elt_data/runs/qwen35_4b_side_lora_stem_aha_ilsd_l2/last.pt"),
+    ),
+    (
+        "configs/qwen35_4b_side_lora_tool_aha_ilsd_l3.yaml",
+        Path("H:/elt_data/runs/qwen35_4b_side_lora_tool_aha_ilsd_l2/last.pt"),
+    ),
+]
+
+SIDE_LORA_SYNTHETIC_V2_BRIDGE_GRPO_CONFIGS: list[str] = [
+    "configs/grpo_side_lora_code_synthetic_v2_bridge.yaml",
+    "configs/grpo_side_lora_math_synthetic_v2_bridge.yaml",
+    "configs/grpo_side_lora_stem_synthetic_v2_bridge.yaml",
+    "configs/grpo_side_lora_tool_synthetic_v2_bridge.yaml",
+]
+
 
 def stage_prepare_synthetic_gb_lora_lanes(ctx: PipelineContext) -> None:
     for lane, input_root, output_root, _config_path in SYNTHETIC_GB_LORA_PREP:
@@ -1301,6 +1381,38 @@ def stage_side_lora_synthetic_v2_hard_grpo(ctx: PipelineContext) -> None:
     run_side_lora_grpo_configs(ctx, SIDE_LORA_SYNTHETIC_V2_HARD_GRPO_CONFIGS)
 
 
+def run_side_lora_ilsd_config_pairs(
+    ctx: PipelineContext,
+    config_pairs: list[tuple[str, Path]],
+) -> None:
+    for config_path, initial_resume in config_pairs:
+        if not file_nonempty(initial_resume):
+            raise PipelineError(f"missing side LoRA checkpoint for ILSD: {initial_resume}")
+        if training_run_complete(config_path):
+            print(f"  skip completed side LoRA ILSD config: {config_path}")
+            continue
+        run_training_config(
+            ctx,
+            config_path,
+            entrypoint="elt-train",
+            initial_resume=initial_resume,
+            initial_resume_mode="init",
+            use_vsdev=True,
+        )
+
+
+def stage_side_lora_synthetic_v2_aha_ilsd_l2(ctx: PipelineContext) -> None:
+    run_side_lora_ilsd_config_pairs(ctx, SIDE_LORA_SYNTHETIC_V2_AHA_ILSD_L2_CONFIGS)
+
+
+def stage_side_lora_synthetic_v2_aha_ilsd_l3(ctx: PipelineContext) -> None:
+    run_side_lora_ilsd_config_pairs(ctx, SIDE_LORA_SYNTHETIC_V2_AHA_ILSD_L3_CONFIGS)
+
+
+def stage_side_lora_synthetic_v2_bridge_grpo(ctx: PipelineContext) -> None:
+    run_side_lora_grpo_configs(ctx, SIDE_LORA_SYNTHETIC_V2_BRIDGE_GRPO_CONFIGS)
+
+
 def stage_export_synthetic_gb_side_lora_adapters(ctx: PipelineContext) -> None:
     exports = [
         ("synthetic_code_gb", Path("H:/elt_data/runs/qwen35_4b_side_lora_code_sft_synthetic_gb/last.pt")),
@@ -1346,6 +1458,24 @@ def stage_export_synthetic_v2_hard_side_lora_grpo_adapters(ctx: PipelineContext)
     for name, ckpt in exports:
         if not file_nonempty(ckpt):
             raise PipelineError(f"cannot export missing synthetic v2 hard GRPO side LoRA checkpoint: {ckpt}")
+        cmd = [
+            "uv", "run", "--no-sync", "python", "-m", "elt_lm.export_lora_adapter",
+            "--ckpt", str(ckpt),
+            "--out-dir", f"H:/elt_data/adapters/qwen35_4b_side/{name}",
+        ]
+        run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_export_synthetic_v2_bridge_side_lora_grpo_adapters(ctx: PipelineContext) -> None:
+    exports = [
+        ("synthetic_code_v2_bridge_grpo", Path("H:/elt_data/runs/grpo_side_lora_code_synthetic_v2_bridge/last.pt")),
+        ("synthetic_math_v2_bridge_grpo", Path("H:/elt_data/runs/grpo_side_lora_math_synthetic_v2_bridge/last.pt")),
+        ("synthetic_stem_v2_bridge_grpo", Path("H:/elt_data/runs/grpo_side_lora_stem_synthetic_v2_bridge/last.pt")),
+        ("synthetic_tool_v2_bridge_grpo", Path("H:/elt_data/runs/grpo_side_lora_tool_synthetic_v2_bridge/last.pt")),
+    ]
+    for name, ckpt in exports:
+        if not file_nonempty(ckpt):
+            raise PipelineError(f"cannot export missing synthetic v2 bridge GRPO side LoRA checkpoint: {ckpt}")
         cmd = [
             "uv", "run", "--no-sync", "python", "-m", "elt_lm.export_lora_adapter",
             "--ckpt", str(ckpt),
@@ -1631,6 +1761,15 @@ SYNTHETIC_V2_HARD_GRPO_STAGES: list[Stage] = [
     Stage("03_synthetic_v2_hard_side_lora_cv_eval", stage_synthetic_v2_hard_side_lora_cv_eval, long_running=True),
 ]
 
+SYNTHETIC_V2_BRIDGE_ILSD_STAGES: list[Stage] = [
+    Stage("00_build_synthetic_v2_hard", stage_build_synthetic_v2_hard),
+    Stage("01_build_synthetic_v2_bridge", stage_build_synthetic_v2_bridge),
+    Stage("02_side_lora_synthetic_v2_aha_ilsd_l2", stage_side_lora_synthetic_v2_aha_ilsd_l2, long_running=True),
+    Stage("03_side_lora_synthetic_v2_aha_ilsd_l3", stage_side_lora_synthetic_v2_aha_ilsd_l3, long_running=True),
+    Stage("04_side_lora_synthetic_v2_bridge_grpo", stage_side_lora_synthetic_v2_bridge_grpo, long_running=True),
+    Stage("05_export_synthetic_v2_bridge_side_lora_grpo_adapters", stage_export_synthetic_v2_bridge_side_lora_grpo_adapters),
+]
+
 SYNTHETIC_GB_SIDE_LORA_STAGES: list[Stage] = [
     Stage("00_prepare_synthetic_gb_lora_lanes", stage_prepare_synthetic_gb_lora_lanes),
     Stage("01_side_lora_synthetic_gb_sft", stage_side_lora_synthetic_gb_sft, long_running=True),
@@ -1659,6 +1798,7 @@ STAGE_PROFILES: dict[str, list[Stage]] = {
     "synthetic-v1-pretrain-posttrain": SYNTHETIC_V1_PRETRAIN_POSTTRAIN_STAGES,
     "synthetic-v2-hard": SYNTHETIC_V2_HARD_STAGES,
     "synthetic-v2-hard-grpo": SYNTHETIC_V2_HARD_GRPO_STAGES,
+    "synthetic-v2-bridge-ilsd": SYNTHETIC_V2_BRIDGE_ILSD_STAGES,
 }
 
 # Backward-compatible public name used by tests and old scripts.

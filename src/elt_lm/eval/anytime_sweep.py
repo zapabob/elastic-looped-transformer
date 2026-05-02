@@ -172,6 +172,7 @@ def run(args: argparse.Namespace) -> None:
     telemetry = make_writer(run_dir)
     try:
         L_range = _parse_l_list(getattr(args, "l_list", ""), cfg=cfg)
+        cv_folds = int(getattr(args, "cv_folds", 5))
         first_L = L_range[0]
         rows: list[dict[str, float | int | str]] = []
         details: list[dict[str, object]] = []
@@ -234,8 +235,8 @@ def run(args: argparse.Namespace) -> None:
                     baseline=baseline,
                     previous=previous,
                 )
-                cv = fold_accuracy_stats(result.case_correct, folds=args.cv_folds)
-                fmt_cv = fold_accuracy_stats(result.case_format_correct, folds=args.cv_folds)
+                cv = fold_accuracy_stats(result.case_correct, folds=cv_folds)
+                fmt_cv = fold_accuracy_stats(result.case_format_correct, folds=cv_folds)
                 history[L] = result
                 print(
                     f"L={L}  benchmark={result.benchmark}  score={result.accuracy:.4f}  "
@@ -367,7 +368,7 @@ def run(args: argparse.Namespace) -> None:
                 "benchmark_manifest": str(args.benchmark_manifest or ""),
                 "rows": rows,
                 "details": details,
-                "cv_folds": args.cv_folds,
+                "cv_folds": cv_folds,
                 "interpretation_note": (
                     "For v0 HauhauCS stem data, high format/verifier rates mainly "
                     "indicate schema memorization on a small duplicate-heavy "

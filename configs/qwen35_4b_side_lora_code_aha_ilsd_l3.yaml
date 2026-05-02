@@ -1,5 +1,5 @@
-# STEM lane L=3 stretch stage. Resume from the L=2 aha adapter.
-# Kept deliberately short/conservative because code L3 showed large
+# Code lane L=3 stretch stage. Resume from the L=2 aha adapter.
+# Kept deliberately short/conservative because the first L3 run showed large
 # teacher/student divergence late in the run.
 
 model:
@@ -43,8 +43,8 @@ ilsd:
   local_consistency_metric: cosine
 
 data:
-  train_bin: H:/elt_data/posttrain_synthetic/stem_reasoning/v1_gb/bin/train.bin
-  val_bin: H:/elt_data/posttrain_synthetic/stem_reasoning/v1_gb/bin/val.bin
+  train_bin: H:/elt_data/posttrain_synthetic/code/v1_gb/bin/train.bin
+  val_bin: H:/elt_data/posttrain_synthetic/code/v1_gb/bin/val.bin
   seq_len: 128
   tokenizer_path: H:/Qwen3.5-9B-official-hf
 
@@ -68,7 +68,7 @@ log_every: 5
 eval_every: 20
 eval_batches: 2
 save_every: 40
-run_dir: H:/elt_data/runs/qwen35_4b_side_lora_stem_aha_ilsd_l3
+run_dir: H:/elt_data/runs/qwen35_4b_side_lora_code_aha_ilsd_l3
 rolling_ckpt_interval_sec: 600
 rolling_ckpt_keep: 3
-seed: 46131
+seed: 46111

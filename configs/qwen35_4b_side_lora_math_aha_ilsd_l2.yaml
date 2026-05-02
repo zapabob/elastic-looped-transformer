@@ -15,7 +15,7 @@ model:
   hf_lora_rank: 16
   hf_lora_alpha: 32.0
   hf_lora_dropout: 0.03
-  hf_lora_top_layers: 8
+  hf_lora_top_layers: 0
   hf_save_adapter_only: true
   hf_adapter_base_ckpt: H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt
   grad_checkpoint: false
@@ -69,4 +69,3 @@ run_dir: H:/elt_data/runs/qwen35_4b_side_lora_math_aha_ilsd_l2
 rolling_ckpt_interval_sec: 600
 rolling_ckpt_keep: 3
 seed: 46021
-

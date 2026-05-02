@@ -21,6 +21,11 @@ from elt_lm.synthetic_v2_reasoning_bridge import (
     generate_bridge_reasoning_prompts,
     generate_easy_reasoning_bridge_prompts,
 )
+from elt_lm.synthetic_v2_tool_bridge import (
+    build_tool_bridge_prompts,
+    generate_bridge_tool_prompts,
+    generate_easy_tool_bridge_prompts,
+)
 from elt_lm.verifiers import CompositeVerifier
 
 
@@ -202,3 +207,57 @@ def test_synthetic_v2_reasoning_bridge_prompts_are_verifier_backed(tmp_path: Pat
         assert len(rows) == 12
         assert {row["metadata"]["curriculum"] for row in rows} == {"bridge_easy_hard"}
         assert rows[0]["metadata"]["difficulty"] == "bridge"
+
+
+def test_synthetic_v2_tool_bridge_prompts_are_verifier_backed(tmp_path: Path) -> None:
+    verifier = CompositeVerifier(task="json_match")
+    examples = [
+        *generate_easy_tool_bridge_prompts(6),
+        *generate_bridge_tool_prompts(6),
+    ]
+
+    assert {example.difficulty for example in examples} == {"easy", "bridge"}
+    assert len({example.domain for example in examples}) == 12
+    for example in examples:
+        score = verifier.reward(
+            example.prompt,
+            example.correct_response,
+            example.reference,
+        ).verifier_total()
+        assert score == 1.0
+
+    hard_cases = tmp_path / "tool_hard.jsonl"
+    hard_cases.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "prompt": f"tool hard prompt {i}",
+                    "reference": json.dumps(
+                        {"tool_name": "mcp.files.search", "arguments": {"query": str(i)}},
+                        sort_keys=True,
+                    ),
+                    "task": "json_match",
+                    "metadata": {"difficulty": "hard", "task_name": f"tool_hard_{i}"},
+                }
+            )
+            for i in range(4)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "tool_bridge.jsonl"
+    summary = build_tool_bridge_prompts(
+        output_path=out,
+        hard_cases_path=hard_cases,
+        total_cases=12,
+        easy_cases=3,
+        bridge_cases=6,
+    )
+    rows = _read_jsonl(out)
+
+    assert summary["lane"] == "tool_use"
+    assert summary["total_cases"] == 12
+    assert summary["difficulty_counts"] == {"easy": 3, "bridge": 6, "hard": 3}
+    assert len(rows) == 12
+    assert {row["metadata"]["curriculum"] for row in rows} == {"bridge_easy_hard"}
+    assert rows[0]["metadata"]["difficulty"] == "bridge"

@@ -220,6 +220,7 @@ class TrainConfig:
     # Logging
     log_every: int = 10
     eval_every: int = 1_000
+    eval_batches: int = 4
     save_every: int = 2_000
     run_dir: str = "runs/default"
 

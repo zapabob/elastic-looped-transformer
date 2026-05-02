@@ -22,7 +22,7 @@ model:
 
 grpo:
   enabled: true
-  init_ckpt: H:/elt_data/runs/qwen35_4b_side_lora_stem_sft_synthetic_gb/last.pt
+  init_ckpt: H:/elt_data/runs/qwen35_4b_side_lora_stem_aha_ilsd_l3/step_0000040.pt
   prompts_file: H:/elt_data/synthetic_v2_hard/stem_reasoning/benchmarks/synthetic_v2_bridge_stem_reasoning_val_cases.jsonl
   task: mcq_reasoning
   group_size: 2

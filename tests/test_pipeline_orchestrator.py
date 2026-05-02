@@ -31,6 +31,28 @@ def test_select_stages_supports_only_and_skip() -> None:
     assert "07_eval_compare" not in [stage.name for stage in selected]
 
 
+def test_training_command_can_initialize_without_resuming_step(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    run_dir = tmp_path / "run"
+    init_ckpt = tmp_path / "source.pt"
+    init_ckpt.write_bytes(b"checkpoint")
+    monkeypatch.setattr(mod, "train_run_dir", lambda _config_path: run_dir)
+
+    plan = mod.build_training_command(
+        "configs/example.yaml",
+        entrypoint="elt-train",
+        initial_resume=init_ckpt,
+        initial_resume_mode="init",
+    )
+
+    assert "--init-from" in plan.cmd
+    assert "--resume" not in plan.cmd
+    assert str(init_ckpt) in plan.cmd
+
+
 def test_side_lora_profile_runs_only_side_stages() -> None:
     mod = _load_pipeline_module()
 
@@ -124,6 +146,27 @@ def test_synthetic_v2_hard_grpo_profile_builds_trains_exports_and_evals() -> Non
         "01_side_lora_synthetic_v2_hard_grpo",
         "02_export_synthetic_v2_hard_side_lora_grpo_adapters",
         "03_synthetic_v2_hard_side_lora_cv_eval",
+    ]
+
+
+def test_synthetic_v2_bridge_ilsd_profile_runs_ladder_then_bridge_grpo() -> None:
+    mod = _load_pipeline_module()
+
+    names = [stage.name for stage in mod.STAGE_PROFILES["synthetic-v2-bridge-ilsd"]]
+
+    assert names == [
+        "00_build_synthetic_v2_hard",
+        "01_build_synthetic_v2_bridge",
+        "02_side_lora_synthetic_v2_aha_ilsd_l2",
+        "03_side_lora_synthetic_v2_aha_ilsd_l3",
+        "04_side_lora_synthetic_v2_bridge_grpo",
+        "05_export_synthetic_v2_bridge_side_lora_grpo_adapters",
+    ]
+    assert mod.SIDE_LORA_SYNTHETIC_V2_BRIDGE_GRPO_CONFIGS == [
+        "configs/grpo_side_lora_code_synthetic_v2_bridge.yaml",
+        "configs/grpo_side_lora_math_synthetic_v2_bridge.yaml",
+        "configs/grpo_side_lora_stem_synthetic_v2_bridge.yaml",
+        "configs/grpo_side_lora_tool_synthetic_v2_bridge.yaml",
     ]
 
 

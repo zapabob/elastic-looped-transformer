@@ -11,16 +11,21 @@ CODE_BIN = "H:/elt_data/posttrain/code/qwen35_hauhaucs/bin"
 
 def test_aha_loop_self_distill_configs_are_stabilized() -> None:
     for name in [
+        "qwen35_4b_side_lora_code_aha_ilsd_l2.yaml",
+        "qwen35_4b_side_lora_code_aha_ilsd_l3.yaml",
         "qwen35_4b_side_lora_math_aha_ilsd_l2.yaml",
         "qwen35_4b_side_lora_stem_aha_ilsd_l2.yaml",
         "qwen35_4b_side_lora_math_aha_ilsd_l3.yaml",
         "qwen35_4b_side_lora_stem_aha_ilsd_l3.yaml",
+        "qwen35_4b_side_lora_tool_aha_ilsd_l2.yaml",
+        "qwen35_4b_side_lora_tool_aha_ilsd_l3.yaml",
     ]:
         cfg = load_train_config(ROOT / "configs" / name)
         assert cfg.model.backbone_kind == "hf_qwen35_looped"
         assert cfg.model.hf_trainable_mode == "lora"
         assert cfg.model.hf_save_adapter_only is True
         assert cfg.model.hf_adapter_base_ckpt == "H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt"
+        assert cfg.model.hf_lora_top_layers == 0
         assert cfg.model.L_min == 1
         assert cfg.model.L_max in {2, 3}
         assert cfg.data.seq_len <= 128
@@ -37,6 +42,36 @@ def test_aha_loop_self_distill_configs_are_stabilized() -> None:
         assert cfg.ilsd.local_consistency_weight > 0.0
         assert cfg.ilsd.distill_teacher_temp >= 1.2
         assert cfg.ilsd.distill_uniform_mix > 0.0
+        if cfg.model.L_max == 3:
+            assert cfg.total_steps <= 80
+            assert cfg.ilsd.lambda_init <= 0.35
+            assert cfg.ilsd.lambda_final <= 0.03
+            assert cfg.eval_every <= 20
+            assert cfg.eval_batches <= 2
+            assert cfg.save_every <= 40
+
+
+def test_aha_loop_self_distill_protocol_covers_all_lanes() -> None:
+    protocol = (ROOT / "configs" / "aha_loop_self_distill_protocol.yaml").read_text(
+        encoding="utf-8"
+    )
+    for lane in ["code", "math", "stem", "tool"]:
+        assert f"qwen35_4b_side_lora_{lane}_aha_ilsd_l2.yaml" in protocol
+        assert f"qwen35_4b_side_lora_{lane}_aha_ilsd_l3.yaml" in protocol
+        assert f"grpo_side_lora_{lane}_synthetic_v2_bridge" in protocol
+
+
+def test_bridge_grpo_configs_use_guarded_l3_checkpoints() -> None:
+    expected_suffixes = {
+        "code": "qwen35_4b_side_lora_code_aha_ilsd_l3/step_0000080.pt",
+        "math": "qwen35_4b_side_lora_math_aha_ilsd_l3/step_0000040.pt",
+        "stem": "qwen35_4b_side_lora_stem_aha_ilsd_l3/step_0000040.pt",
+        "tool": "qwen35_4b_side_lora_tool_aha_ilsd_l3/step_0000040.pt",
+    }
+    for lane, suffix in expected_suffixes.items():
+        cfg = load_train_config(ROOT / "configs" / f"grpo_side_lora_{lane}_synthetic_v2_bridge.yaml")
+        assert cfg.grpo.enabled is True
+        assert cfg.grpo.init_ckpt.endswith(suffix)
 
 
 def _assert_common_side_smoke(

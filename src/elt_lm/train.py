@@ -187,8 +187,14 @@ class RollingCheckpointer:
         return True
 
 
-def load_checkpoint(path: str | Path, model: nn.Module,
-                    opt: torch.optim.Optimizer | None = None) -> int:
+def load_checkpoint(
+    path: str | Path,
+    model: nn.Module,
+    opt: torch.optim.Optimizer | None = None,
+    *,
+    restore_rng: bool = True,
+    action: str = "resumed from",
+) -> int:
     """Load a checkpoint, restore RNG state, return the step index to resume from."""
     state = torch.load(path, map_location="cpu", weights_only=False)
     if state.get("adapter_only") and hasattr(model, "load_adapter_checkpoint_state"):
@@ -199,20 +205,75 @@ def load_checkpoint(path: str | Path, model: nn.Module,
             model.remember_adapter_base_checkpoint(path)  # type: ignore[attr-defined]
     if opt is not None and "optim" in state:
         opt.load_state_dict(state["optim"])
-    if "rng_state" in state:
+    if restore_rng and "rng_state" in state:
         torch.set_rng_state(state["rng_state"].to("cpu") if hasattr(state["rng_state"], "to")
                             else state["rng_state"])
-    if torch.cuda.is_available() and "cuda_rng_state" in state:
+    if restore_rng and torch.cuda.is_available() and "cuda_rng_state" in state:
         try:
             torch.cuda.set_rng_state_all(state["cuda_rng_state"])
         except (RuntimeError, TypeError):
             pass
     step = int(state.get("step", 0))
-    print(f"  resumed from {path} (step {step})")
+    print(f"  {action} {path} (step {step})")
     return step
 
 
-def train(cfg: TrainConfig, resume: str | None = None) -> None:
+@torch.no_grad()
+def run_val_probe(
+    model: nn.Module,
+    loss_fn: ILSDLossFn,
+    val_dl: DataLoader,
+    cfg: TrainConfig,
+    device: torch.device,
+    step: int,
+) -> dict[str, float | int] | None:
+    """Run a tiny validation probe so ILSD divergence can be detected early."""
+    was_training = model.training
+    model.eval()
+    totals = {
+        "loss": 0.0,
+        "l_gt_teacher": 0.0,
+        "l_gt_student": 0.0,
+        "l_dist": 0.0,
+        "l_entropy": 0.0,
+        "l_curve": 0.0,
+        "l_logit_curve": 0.0,
+        "l_local": 0.0,
+    }
+    n_batches = 0
+    try:
+        for input_ids, labels in val_dl:
+            input_ids = input_ids.to(device=device, non_blocking=True)
+            labels = labels.to(device=device, non_blocking=True)
+            out = loss_fn(model, input_ids, labels, step=step)
+            totals["loss"] += float(out.total.detach().float().item())
+            totals["l_gt_teacher"] += float(out.l_gt_teacher.detach().float().item())
+            totals["l_gt_student"] += float(out.l_gt_student.detach().float().item())
+            totals["l_dist"] += float(out.l_dist.detach().float().item())
+            totals["l_entropy"] += float(out.l_entropy.detach().float().item())
+            totals["l_curve"] += float(out.l_curve.detach().float().item())
+            totals["l_logit_curve"] += float(out.l_logit_curve.detach().float().item())
+            totals["l_local"] += float(out.l_local.detach().float().item())
+            n_batches += 1
+            if n_batches >= max(1, cfg.eval_batches):
+                break
+    finally:
+        if was_training:
+            model.train()
+    if n_batches == 0:
+        return None
+    averaged = {key: value / n_batches for key, value in totals.items()}
+    averaged["batches"] = n_batches
+    return averaged
+
+
+def train(
+    cfg: TrainConfig,
+    resume: str | None = None,
+    init_from: str | None = None,
+) -> None:
+    if resume and init_from:
+        raise ValueError("--resume and --init-from are mutually exclusive")
     torch.manual_seed(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = get_dtype(cfg.dtype)
@@ -231,11 +292,26 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
 
     if (
         resume is None
+        and init_from is None
         and cfg.model.hf_trainable_mode == "lora"
         and cfg.model.hf_adapter_base_ckpt
     ):
-        base_step = load_checkpoint(cfg.model.hf_adapter_base_ckpt, model, opt=None)
+        base_step = load_checkpoint(
+            cfg.model.hf_adapter_base_ckpt,
+            model,
+            opt=None,
+            action="initialized LoRA base from",
+        )
         print(f"  initialized LoRA base from {cfg.model.hf_adapter_base_ckpt} (base step {base_step})")
+    if init_from:
+        init_step = load_checkpoint(
+            init_from,
+            model,
+            opt=None,
+            restore_rng=False,
+            action="initialized trainable state from",
+        )
+        print(f"  reset training step after initialization checkpoint (source step {init_step})")
 
     offload_store = None
     if cfg.optim.kind == "nvme_adamw":
@@ -283,6 +359,25 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
         drop_last=True,
     )
     print(f"train tokens: {train_ds.n_tokens:,} | windows: {len(train_ds):,}")
+    val_dl = None
+    if cfg.eval_every > 0 and cfg.data.val_bin:
+        val_path = Path(cfg.data.val_bin)
+        if val_path.is_file():
+            val_ds = PackedTokenDataset(cfg.data.val_bin, seq_len=cfg.data.seq_len)
+            val_dl = DataLoader(
+                val_ds,
+                batch_size=cfg.micro_batch_size,
+                shuffle=False,
+                num_workers=0,
+                pin_memory=(device.type == "cuda"),
+                drop_last=False,
+            )
+            print(
+                f"val probe tokens: {val_ds.n_tokens:,} | windows: {len(val_ds):,} | "
+                f"batches/probe: {cfg.eval_batches}"
+            )
+        else:
+            print(f"[warn] eval_every set but val_bin is missing: {cfg.data.val_bin}", file=sys.stderr)
 
     # ---- loop -------------------------------------------------------------
     global_step = resume_step
@@ -343,6 +438,16 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
                 )
                 accum_loss = 0.0
 
+            if val_dl is not None and global_step > 0 and global_step % cfg.eval_every == 0:
+                probe = run_val_probe(model, loss_fn, val_dl, cfg, device, global_step)
+                if probe is not None:
+                    print(
+                        f"val {global_step:6d} | loss {probe['loss']:.4f} | "
+                        f"L_dist {probe['l_dist']:.3f} | L_ent {probe['l_entropy']:.3f} | "
+                        f"L_local {probe['l_local']:.3f} | batches {probe['batches']}"
+                    )
+                    telemetry.emit("val_probe", step=global_step, **probe)
+
             if cfg.save_every and global_step > 0 and global_step % cfg.save_every == 0:
                 save_checkpoint(model, opt, cfg, global_step, run_dir)
                 telemetry.emit("checkpoint", kind="milestone", step=global_step)
@@ -354,6 +459,16 @@ def train(cfg: TrainConfig, resume: str | None = None) -> None:
             global_step += 1
             if global_step >= cfg.total_steps:
                 break
+
+    if val_dl is not None:
+        probe = run_val_probe(model, loss_fn, val_dl, cfg, device, global_step)
+        if probe is not None:
+            print(
+                f"val final  | step {global_step:6d} | loss {probe['loss']:.4f} | "
+                f"L_dist {probe['l_dist']:.3f} | L_ent {probe['l_entropy']:.3f} | "
+                f"L_local {probe['l_local']:.3f} | batches {probe['batches']}"
+            )
+            telemetry.emit("val_probe", step=global_step, kind="final", **probe)
 
     save_checkpoint(model, opt, cfg, global_step, run_dir)
     telemetry.emit("checkpoint", kind="final", step=global_step)
@@ -368,6 +483,8 @@ def cli() -> None:
     p.add_argument("--config", required=True)
     p.add_argument("--resume", default=None,
                    help="path to checkpoint to resume from (usually runs/<name>/last.pt)")
+    p.add_argument("--init-from", default=None,
+                   help="path to checkpoint used only to initialize weights/adapters; step and optimizer are reset")
     p.add_argument("--override", nargs="*", default=[], help="override TrainConfig fields: key=value")
     args = p.parse_args()
 
@@ -387,7 +504,7 @@ def cli() -> None:
         except (TypeError, ValueError) as e:
             print(f"[warn] could not cast {key}={value}: {e}", file=sys.stderr)
 
-    train(cfg, resume=args.resume)
+    train(cfg, resume=args.resume, init_from=args.init_from)
 
 
 if __name__ == "__main__":
