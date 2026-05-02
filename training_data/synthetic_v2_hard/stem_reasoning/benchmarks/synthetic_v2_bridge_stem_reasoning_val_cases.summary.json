@@ -1,0 +1,26 @@
+{
+  "source": "synthetic-v2-reasoning-bridge",
+  "lane": "stem_reasoning",
+  "output_path": "H:\\elt_data\\synthetic_v2_hard\\stem_reasoning\\benchmarks\\synthetic_v2_bridge_stem_reasoning_val_cases.jsonl",
+  "hard_cases_path": "H:\\elt_data\\synthetic_v2_hard\\stem_reasoning\\benchmarks\\synthetic_v2_hard_stem_reasoning_val_cases.jsonl",
+  "total_cases": 256,
+  "difficulty_counts": {
+    "easy": 64,
+    "bridge": 128,
+    "hard": 64
+  },
+  "domain_counts": {
+    "bridge_battery_thermal_path": 26,
+    "easy_energy_conservation": 16,
+    "two_stage_stem_0": 22,
+    "bridge_sensor_fusion_tradeoff": 25,
+    "bridge_assay_confirmation": 26,
+    "easy_queue_bursts": 16,
+    "two_stage_stem_1": 21,
+    "bridge_reservoir_bursts": 26,
+    "easy_prevalence_specificity": 16,
+    "two_stage_stem_2": 21,
+    "bridge_pathway_bottleneck_shift": 25,
+    "easy_delayed_feedback": 16
+  }
+}

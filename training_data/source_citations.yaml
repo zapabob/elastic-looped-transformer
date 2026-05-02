@@ -1,0 +1,116 @@
+synthetic_data:
+  - id: synthetic-v2-hard
+    included_path: training_data/synthetic_v2_hard
+    generated_by:
+      - src/elt_lm/synthetic_v2_hard.py
+      - src/elt_lm/synthetic_v2_code_bridge.py
+      - src/elt_lm/synthetic_v2_reasoning_bridge.py
+      - src/elt_lm/verifiers.py
+    cite:
+      - https://github.com/zapabob/elastic-looped-transformer
+      - https://arxiv.org/abs/2604.09168
+      - https://arxiv.org/abs/2402.03300
+
+base_model_and_tokenizer:
+  - id: huihui-ai/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated
+    url: https://huggingface.co/huihui-ai/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated
+    role: side-LoRA base checkpoint in current Qwen3.5-4B side-lane configs
+  - id: Qwen/Qwen3.5-9B
+    url: https://huggingface.co/Qwen/Qwen3.5-9B
+    role: tokenizer/source-family path used by local training configs
+
+public_hf_corpora:
+  - id: range3/wikipedia-ja-20230101
+    url: https://huggingface.co/datasets/range3/wikipedia-ja-20230101
+  - id: wikimedia/wikipedia
+    subset: 20231101.en
+    url: https://huggingface.co/datasets/wikimedia/wikipedia
+  - id: meta-math/MetaMathQA
+    url: https://huggingface.co/datasets/meta-math/MetaMathQA
+  - id: openai/gsm8k
+    subset: main
+    url: https://huggingface.co/datasets/openai/gsm8k
+  - id: ise-uiuc/Magicoder-OSS-Instruct-75K
+    url: https://huggingface.co/datasets/ise-uiuc/Magicoder-OSS-Instruct-75K
+  - id: ise-uiuc/Magicoder-Evol-Instruct-110K
+    url: https://huggingface.co/datasets/ise-uiuc/Magicoder-Evol-Instruct-110K
+  - id: bigcode/the-stack-smol
+    url: https://huggingface.co/datasets/bigcode/the-stack-smol
+  - id: codeparrot/github-code-clean
+    subset: all-all
+    url: https://huggingface.co/datasets/codeparrot/github-code-clean
+  - id: glaiveai/glaive-function-calling-v2
+    url: https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2
+  - id: m-a-p/CodeFeedback-Filtered-Instruction
+    url: https://huggingface.co/datasets/m-a-p/CodeFeedback-Filtered-Instruction
+  - id: OpenCoder-LLM/opc-sft-stage2
+    subset: educational_instruct
+    url: https://huggingface.co/datasets/OpenCoder-LLM/opc-sft-stage2
+  - id: bigcode/commitpackft
+    subset: python
+    url: https://huggingface.co/datasets/bigcode/commitpackft
+  - id: NousResearch/hermes-function-calling-v1
+    subset: func_calling
+    url: https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1
+  - id: Team-ACE/ToolACE
+    url: https://huggingface.co/datasets/Team-ACE/ToolACE
+  - id: gorilla-llm/APIBench
+    url: https://huggingface.co/datasets/gorilla-llm/APIBench
+  - id: microsoft/orca-agentinstruct-1M-v1
+    url: https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1
+  - id: teknium/OpenHermes-2.5
+    url: https://huggingface.co/datasets/teknium/OpenHermes-2.5
+  - id: allenai/WildChat-1M
+    url: https://huggingface.co/datasets/allenai/WildChat-1M
+  - id: GeneralReasoning/GeneralThought-430K
+    url: https://huggingface.co/datasets/GeneralReasoning/GeneralThought-430K
+  - id: Open-Orca/SlimOrca-Dedup
+    url: https://huggingface.co/datasets/Open-Orca/SlimOrca-Dedup
+  - id: SWE-Gym/SWE-Gym
+    url: https://huggingface.co/datasets/SWE-Gym/SWE-Gym
+  - id: xingyaoww/code-act
+    url: https://huggingface.co/datasets/xingyaoww/code-act
+  - id: THUDM/AgentInstruct
+    subset: os
+    url: https://huggingface.co/datasets/THUDM/AgentInstruct
+  - id: bigcode/self-oss-instruct-sc2-exec-filter-50k
+    url: https://huggingface.co/datasets/bigcode/self-oss-instruct-sc2-exec-filter-50k
+  - id: open-thoughts/OpenThoughts-114k
+    url: https://huggingface.co/datasets/open-thoughts/OpenThoughts-114k
+  - id: HuggingFaceTB/smollm-corpus
+    subset: cosmopedia-v2
+    url: https://huggingface.co/datasets/HuggingFaceTB/smollm-corpus
+  - id: HuggingFaceTB/finemath
+    subset: finemath-4plus
+    url: https://huggingface.co/datasets/HuggingFaceTB/finemath
+  - id: open-web-math/open-web-math
+    url: https://huggingface.co/datasets/open-web-math/open-web-math
+  - id: camel-ai/physics
+    url: https://huggingface.co/datasets/camel-ai/physics
+  - id: camel-ai/chemistry
+    url: https://huggingface.co/datasets/camel-ai/chemistry
+  - id: camel-ai/biology
+    url: https://huggingface.co/datasets/camel-ai/biology
+  - id: allenai/tulu-3-sft-mixture
+    url: https://huggingface.co/datasets/allenai/tulu-3-sft-mixture
+  - id: nvidia/OpenMathInstruct-2
+    subset: train_1M
+    url: https://huggingface.co/datasets/nvidia/OpenMathInstruct-2
+  - id: nvidia/OpenCodeReasoning
+    subset: split_0
+    url: https://huggingface.co/datasets/nvidia/OpenCodeReasoning
+  - id: nvidia/OpenCodeInstruct
+    url: https://huggingface.co/datasets/nvidia/OpenCodeInstruct
+  - id: Salesforce/xlam-function-calling-60k
+    url: https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k
+
+local_or_unredistributed_sources:
+  - id: local_so8t_aegis_reasoning
+    role: local reasoning/SFT JSONL snapshots, not redistributed in this repo
+  - id: local_from_d_wikipedia
+    role: local plain-text Wikipedia/domain snapshots, not redistributed in this repo
+  - id: local_from_d_final
+    role: local mixed-domain JSONL train/val splits, not redistributed in this repo
+  - id: local_webdataset_integrated
+    role: local WebDataset-derived PPO/instruction records, not redistributed in this repo
+

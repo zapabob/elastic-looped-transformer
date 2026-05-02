@@ -9,6 +9,36 @@ ROOT = Path(__file__).resolve().parents[1]
 CODE_BIN = "H:/elt_data/posttrain/code/qwen35_hauhaucs/bin"
 
 
+def test_aha_loop_self_distill_configs_are_stabilized() -> None:
+    for name in [
+        "qwen35_4b_side_lora_math_aha_ilsd_l2.yaml",
+        "qwen35_4b_side_lora_stem_aha_ilsd_l2.yaml",
+        "qwen35_4b_side_lora_math_aha_ilsd_l3.yaml",
+        "qwen35_4b_side_lora_stem_aha_ilsd_l3.yaml",
+    ]:
+        cfg = load_train_config(ROOT / "configs" / name)
+        assert cfg.model.backbone_kind == "hf_qwen35_looped"
+        assert cfg.model.hf_trainable_mode == "lora"
+        assert cfg.model.hf_save_adapter_only is True
+        assert cfg.model.hf_adapter_base_ckpt == "H:/elt_data/runs/qwen35_4b_elt_bootstrap/last.pt"
+        assert cfg.model.L_min == 1
+        assert cfg.model.L_max in {2, 3}
+        assert cfg.data.seq_len <= 128
+        assert cfg.optim.kind == "adamw"
+        assert cfg.grad_clip <= 0.5
+        assert "aha_ilsd_l" in cfg.run_dir
+        assert cfg.rolling_ckpt_interval_sec == 600
+        assert cfg.rolling_ckpt_keep == 3
+        assert cfg.ilsd.enabled is True
+        assert cfg.ilsd.strict_student_below_teacher is True
+        assert cfg.ilsd.lambda_final < cfg.ilsd.lambda_init
+        assert cfg.ilsd.entropy_floor_weight > 0.0
+        assert cfg.ilsd.entropy_curvature_weight > 0.0
+        assert cfg.ilsd.local_consistency_weight > 0.0
+        assert cfg.ilsd.distill_teacher_temp >= 1.2
+        assert cfg.ilsd.distill_uniform_mix > 0.0
+
+
 def _assert_common_side_smoke(
     path: str,
     *,

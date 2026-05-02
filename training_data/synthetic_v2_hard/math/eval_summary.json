@@ -1,0 +1,53 @@
+{
+  "total_records": 1024,
+  "valid_json_records": 1024,
+  "schema_valid_rate": 1.0,
+  "unique_text_ratio": 1.0,
+  "exact_duplicate_count": 0,
+  "exact_duplicate_ratio": 0.0,
+  "duplicate_prompt_count": 0,
+  "fallback_reject_count": 0,
+  "verifier_pass_rate": 1.0,
+  "verifier_pass_count": 1024,
+  "verifier_total": 1024,
+  "answer_distribution": {},
+  "retry_count": 0,
+  "accepted_records": 1024,
+  "attempted_tasks": 1024,
+  "generation_attempts": 1024,
+  "quality_reject_count": 0,
+  "quality_reject_reasons": {},
+  "domain_counts": {
+    "multi_step_math_1": 171,
+    "multi_step_math_2": 171,
+    "multi_step_math_3": 171,
+    "multi_step_math_5": 170,
+    "multi_step_math_0": 171,
+    "multi_step_math_4": 170
+  },
+  "label_counts": {
+    "exact_math": 1024
+  },
+  "split_counts": {
+    "train": 768,
+    "val": 256
+  },
+  "lane_counts": {
+    "math": 1024
+  },
+  "task_counts": {
+    "exact_math": 1024
+  },
+  "lane": "math",
+  "source": "synthetic-v2-hard",
+  "difficulty": "hard",
+  "records": 1024,
+  "failure_records": 1024,
+  "failure_expected_zero_rate": 1.0,
+  "loop_depth_counts": {
+    "3": 1024
+  },
+  "benchmark_cases_path": "H:\\elt_data\\synthetic_v2_hard\\math\\benchmarks\\synthetic_v2_hard_math_val_cases.jsonl",
+  "benchmark_manifest_path": "H:\\elt_data\\synthetic_v2_hard\\math\\benchmarks\\synthetic_v2_hard_math_val_manifest.yaml",
+  "rejected": {}
+}

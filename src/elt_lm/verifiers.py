@@ -127,6 +127,8 @@ def exact_match_correctness(answer_text: str, reference: str) -> float:
 
 def exact_math_correctness(answer_text: str, reference: str) -> float:
     _, candidate = canonical_task_answer("exact_math", answer_text)
+    if not candidate:
+        candidate = answer_text.strip()
     gold = reference.strip()
     if not candidate or not gold:
         return 0.0
@@ -148,6 +150,8 @@ def exact_math_correctness(answer_text: str, reference: str) -> float:
 
 def mcq_reasoning_correctness(answer_text: str, reference: str) -> float:
     _, candidate = canonical_task_answer("mcq_reasoning", answer_text)
+    if not candidate:
+        candidate = answer_text.strip()
     m = re.findall(r"\b([A-E])\b", candidate, re.IGNORECASE)
     if not m:
         return 0.0

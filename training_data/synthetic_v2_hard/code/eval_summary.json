@@ -1,0 +1,53 @@
+{
+  "total_records": 1024,
+  "valid_json_records": 1024,
+  "schema_valid_rate": 1.0,
+  "unique_text_ratio": 1.0,
+  "exact_duplicate_count": 0,
+  "exact_duplicate_ratio": 0.0,
+  "duplicate_prompt_count": 0,
+  "fallback_reject_count": 0,
+  "verifier_pass_rate": 1.0,
+  "verifier_pass_count": 1024,
+  "verifier_total": 1024,
+  "answer_distribution": {},
+  "retry_count": 0,
+  "accepted_records": 1024,
+  "attempted_tasks": 1024,
+  "generation_attempts": 1024,
+  "quality_reject_count": 0,
+  "quality_reject_reasons": {},
+  "domain_counts": {
+    "inventory_delta_reconciliation": 171,
+    "capacity_batch_planning": 171,
+    "active_user_session_counts": 171,
+    "anomaly_window_grouping": 170,
+    "merge_downtime_windows": 171,
+    "net_transfer_balances": 170
+  },
+  "label_counts": {
+    "python_exec": 1024
+  },
+  "split_counts": {
+    "train": 768,
+    "val": 256
+  },
+  "lane_counts": {
+    "code": 1024
+  },
+  "task_counts": {
+    "python_exec": 1024
+  },
+  "lane": "code",
+  "source": "synthetic-v2-hard",
+  "difficulty": "hard",
+  "records": 1024,
+  "failure_records": 1024,
+  "failure_expected_zero_rate": 1.0,
+  "loop_depth_counts": {
+    "3": 1024
+  },
+  "benchmark_cases_path": "H:\\elt_data\\synthetic_v2_hard\\code\\benchmarks\\synthetic_v2_hard_code_val_cases.jsonl",
+  "benchmark_manifest_path": "H:\\elt_data\\synthetic_v2_hard\\code\\benchmarks\\synthetic_v2_hard_code_val_manifest.yaml",
+  "rejected": {}
+}

@@ -192,6 +192,28 @@ uv run python scripts/pipeline.py
 powershell -ExecutionPolicy Bypass -File scripts/pipeline_register.ps1
 ```
 
+## Training data provenance
+
+The current repository includes a redistributable snapshot of the active
+synthetic-v2-hard training/evaluation data under `training_data/synthetic_v2_hard/`.
+That snapshot contains verifier-backed SFT traces, intentionally wrong contrast
+traces, and held-out GRPO/bridge prompts for code, math, STEM reasoning, and
+tool-use lanes.
+
+Source and citation metadata is tracked in:
+
+- `training_data/DATA_SOURCES.md`
+- `training_data/source_citations.yaml`
+- `scripts/download_hf_corpus.py`
+- `scripts/corpus_manifest.yaml`
+
+The large tokenized `*.bin` files under `H:/elt_data/*` are generated artifacts
+and are not committed. For model releases, cite the exact public datasets listed
+in `training_data/source_citations.yaml`, plus this repository commit for the
+synthetic-v2-hard generated data. The loop/self-distillation method follows
+ELT / ILSD ([arXiv:2604.09168](https://arxiv.org/abs/2604.09168)); GRPO follows
+DeepSeekMath ([arXiv:2402.03300](https://arxiv.org/abs/2402.03300)).
+
 ## Dashboard
 
 ```bash

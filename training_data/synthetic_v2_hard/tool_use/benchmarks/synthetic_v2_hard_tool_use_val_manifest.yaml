@@ -1,0 +1,7 @@
+benchmarks:
+- name: synthetic_v2_hard_tool_use_val
+  kind: jsonl
+  task: json_match
+  path: H:\elt_data\synthetic_v2_hard\tool_use\benchmarks\synthetic_v2_hard_tool_use_val_cases.jsonl
+  prompt_field: prompt
+  reference_field: reference

@@ -58,6 +58,24 @@ def test_composite_verifier_uses_code_quality_channels() -> None:
 def test_exact_math_and_mcq_verifiers_accept_structured_outputs() -> None:
     assert exact_math_correctness("<think>Subtract 1.</think><answer>2</answer>", "2") == 1.0
     assert mcq_reasoning_correctness("<think>Conservation of energy.</think><answer>B</answer>", "B") == 1.0
+    assert exact_math_correctness("2", "2") == 1.0
+    assert mcq_reasoning_correctness("B", "B") == 1.0
+
+
+def test_composite_verifier_scores_structured_math_and_mcq_outputs() -> None:
+    math_reward = CompositeVerifier(task="exact_math").reward(
+        prompt="",
+        response="<think>Compute exactly.</think><answer>3/7</answer>",
+        reference="3/7",
+    )
+    stem_reward = CompositeVerifier(task="mcq_reasoning").reward(
+        prompt="",
+        response="<think>Compare the options.</think><answer>C</answer>",
+        reference="C",
+    )
+
+    assert math_reward.verifier_total() == 1.0
+    assert stem_reward.verifier_total() == 1.0
 
 
 def test_json_match_verifier_handles_raw_json() -> None:

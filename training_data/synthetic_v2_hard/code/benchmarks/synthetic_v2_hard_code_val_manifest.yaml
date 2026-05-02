@@ -1,0 +1,7 @@
+benchmarks:
+- name: synthetic_v2_hard_code_val
+  kind: jsonl
+  task: python_exec
+  path: H:\elt_data\synthetic_v2_hard\code\benchmarks\synthetic_v2_hard_code_val_cases.jsonl
+  prompt_field: prompt
+  reference_field: reference

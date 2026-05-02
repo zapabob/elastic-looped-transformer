@@ -1,0 +1,7 @@
+benchmarks:
+- name: synthetic_v2_hard_stem_reasoning_val
+  kind: jsonl
+  task: mcq_reasoning
+  path: H:\elt_data\synthetic_v2_hard\stem_reasoning\benchmarks\synthetic_v2_hard_stem_reasoning_val_cases.jsonl
+  prompt_field: prompt
+  reference_field: reference

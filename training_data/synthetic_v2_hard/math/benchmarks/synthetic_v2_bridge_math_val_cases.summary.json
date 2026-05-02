@@ -1,0 +1,29 @@
+{
+  "source": "synthetic-v2-reasoning-bridge",
+  "lane": "math",
+  "output_path": "H:\\elt_data\\synthetic_v2_hard\\math\\benchmarks\\synthetic_v2_bridge_math_val_cases.jsonl",
+  "hard_cases_path": "H:\\elt_data\\synthetic_v2_hard\\math\\benchmarks\\synthetic_v2_hard_math_val_cases.jsonl",
+  "total_cases": 256,
+  "difficulty_counts": {
+    "easy": 64,
+    "bridge": 128,
+    "hard": 64
+  },
+  "domain_counts": {
+    "bridge_bayes_then_escalation": 22,
+    "easy_cost_arithmetic": 11,
+    "multi_step_math_0": 22,
+    "bridge_two_loop_markov": 21,
+    "bridge_recurrence_correction": 22,
+    "easy_fraction_counts": 11,
+    "multi_step_math_4": 21,
+    "bridge_drop_low_weighted_gain": 21,
+    "bridge_inclusion_then_probability": 21,
+    "easy_two_loop_state": 11,
+    "multi_step_math_2": 21,
+    "bridge_tier_discount_fee": 21,
+    "easy_weighted_mean": 11,
+    "easy_conditioned_probability": 10,
+    "easy_ordered_operations": 10
+  }
+}

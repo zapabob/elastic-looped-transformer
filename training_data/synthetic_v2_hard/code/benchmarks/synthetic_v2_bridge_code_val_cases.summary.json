@@ -1,0 +1,28 @@
+{
+  "source": "synthetic-v2-code-bridge",
+  "output_path": "H:\\elt_data\\synthetic_v2_hard\\code\\benchmarks\\synthetic_v2_bridge_code_val_cases.jsonl",
+  "hard_cases_path": "H:\\elt_data\\synthetic_v2_hard\\code\\benchmarks\\synthetic_v2_hard_code_val_cases.jsonl",
+  "total_cases": 256,
+  "difficulty_counts": {
+    "easy": 64,
+    "bridge": 128,
+    "hard": 64
+  },
+  "domain_counts": {
+    "bridge_inventory_delta_reconciliation": 22,
+    "easy_sum_with_guard": 11,
+    "merge_downtime_windows": 22,
+    "bridge_net_transfer_balances": 21,
+    "bridge_capacity_batch_planning": 22,
+    "easy_clamp_values": 11,
+    "net_transfer_balances": 21,
+    "bridge_anomaly_window_grouping": 21,
+    "bridge_active_user_session_counts": 21,
+    "easy_sorted_counts": 11,
+    "capacity_batch_planning": 21,
+    "bridge_merge_downtime_windows": 21,
+    "easy_running_total": 11,
+    "easy_unique_order": 10,
+    "easy_split_buckets": 10
+  }
+}

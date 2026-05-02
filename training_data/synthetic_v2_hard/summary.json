@@ -1,0 +1,220 @@
+{
+  "source": "synthetic-v2-hard",
+  "output_root": "H:\\elt_data\\synthetic_v2_hard",
+  "records_per_lane": 1024,
+  "lanes": {
+    "code": {
+      "total_records": 1024,
+      "valid_json_records": 1024,
+      "schema_valid_rate": 1.0,
+      "unique_text_ratio": 1.0,
+      "exact_duplicate_count": 0,
+      "exact_duplicate_ratio": 0.0,
+      "duplicate_prompt_count": 0,
+      "fallback_reject_count": 0,
+      "verifier_pass_rate": 1.0,
+      "verifier_pass_count": 1024,
+      "verifier_total": 1024,
+      "answer_distribution": {},
+      "retry_count": 0,
+      "accepted_records": 1024,
+      "attempted_tasks": 1024,
+      "generation_attempts": 1024,
+      "quality_reject_count": 0,
+      "quality_reject_reasons": {},
+      "domain_counts": {
+        "inventory_delta_reconciliation": 171,
+        "capacity_batch_planning": 171,
+        "active_user_session_counts": 171,
+        "anomaly_window_grouping": 170,
+        "merge_downtime_windows": 171,
+        "net_transfer_balances": 170
+      },
+      "label_counts": {
+        "python_exec": 1024
+      },
+      "split_counts": {
+        "train": 768,
+        "val": 256
+      },
+      "lane_counts": {
+        "code": 1024
+      },
+      "task_counts": {
+        "python_exec": 1024
+      },
+      "lane": "code",
+      "source": "synthetic-v2-hard",
+      "difficulty": "hard",
+      "records": 1024,
+      "failure_records": 1024,
+      "failure_expected_zero_rate": 1.0,
+      "loop_depth_counts": {
+        "3": 1024
+      },
+      "benchmark_cases_path": "H:\\elt_data\\synthetic_v2_hard\\code\\benchmarks\\synthetic_v2_hard_code_val_cases.jsonl",
+      "benchmark_manifest_path": "H:\\elt_data\\synthetic_v2_hard\\code\\benchmarks\\synthetic_v2_hard_code_val_manifest.yaml",
+      "rejected": {}
+    },
+    "math": {
+      "total_records": 1024,
+      "valid_json_records": 1024,
+      "schema_valid_rate": 1.0,
+      "unique_text_ratio": 1.0,
+      "exact_duplicate_count": 0,
+      "exact_duplicate_ratio": 0.0,
+      "duplicate_prompt_count": 0,
+      "fallback_reject_count": 0,
+      "verifier_pass_rate": 1.0,
+      "verifier_pass_count": 1024,
+      "verifier_total": 1024,
+      "answer_distribution": {},
+      "retry_count": 0,
+      "accepted_records": 1024,
+      "attempted_tasks": 1024,
+      "generation_attempts": 1024,
+      "quality_reject_count": 0,
+      "quality_reject_reasons": {},
+      "domain_counts": {
+        "multi_step_math_1": 171,
+        "multi_step_math_2": 171,
+        "multi_step_math_3": 171,
+        "multi_step_math_5": 170,
+        "multi_step_math_0": 171,
+        "multi_step_math_4": 170
+      },
+      "label_counts": {
+        "exact_math": 1024
+      },
+      "split_counts": {
+        "train": 768,
+        "val": 256
+      },
+      "lane_counts": {
+        "math": 1024
+      },
+      "task_counts": {
+        "exact_math": 1024
+      },
+      "lane": "math",
+      "source": "synthetic-v2-hard",
+      "difficulty": "hard",
+      "records": 1024,
+      "failure_records": 1024,
+      "failure_expected_zero_rate": 1.0,
+      "loop_depth_counts": {
+        "3": 1024
+      },
+      "benchmark_cases_path": "H:\\elt_data\\synthetic_v2_hard\\math\\benchmarks\\synthetic_v2_hard_math_val_cases.jsonl",
+      "benchmark_manifest_path": "H:\\elt_data\\synthetic_v2_hard\\math\\benchmarks\\synthetic_v2_hard_math_val_manifest.yaml",
+      "rejected": {}
+    },
+    "stem_reasoning": {
+      "total_records": 1024,
+      "valid_json_records": 1024,
+      "schema_valid_rate": 1.0,
+      "unique_text_ratio": 1.0,
+      "exact_duplicate_count": 0,
+      "exact_duplicate_ratio": 0.0,
+      "duplicate_prompt_count": 0,
+      "fallback_reject_count": 0,
+      "verifier_pass_rate": 1.0,
+      "verifier_pass_count": 1024,
+      "verifier_total": 1024,
+      "answer_distribution": {
+        "B": 256,
+        "C": 256,
+        "D": 256,
+        "A": 256
+      },
+      "retry_count": 0,
+      "accepted_records": 1024,
+      "attempted_tasks": 1024,
+      "generation_attempts": 1024,
+      "quality_reject_count": 0,
+      "quality_reject_reasons": {},
+      "domain_counts": {
+        "two_stage_stem_1": 341,
+        "two_stage_stem_2": 341,
+        "two_stage_stem_0": 342
+      },
+      "label_counts": {
+        "mcq_reasoning": 1024
+      },
+      "split_counts": {
+        "train": 768,
+        "val": 256
+      },
+      "lane_counts": {
+        "stem_reasoning": 1024
+      },
+      "task_counts": {
+        "mcq_reasoning": 1024
+      },
+      "lane": "stem_reasoning",
+      "source": "synthetic-v2-hard",
+      "difficulty": "hard",
+      "records": 1024,
+      "failure_records": 1024,
+      "failure_expected_zero_rate": 1.0,
+      "loop_depth_counts": {
+        "3": 1024
+      },
+      "benchmark_cases_path": "H:\\elt_data\\synthetic_v2_hard\\stem_reasoning\\benchmarks\\synthetic_v2_hard_stem_reasoning_val_cases.jsonl",
+      "benchmark_manifest_path": "H:\\elt_data\\synthetic_v2_hard\\stem_reasoning\\benchmarks\\synthetic_v2_hard_stem_reasoning_val_manifest.yaml",
+      "rejected": {}
+    },
+    "tool_use": {
+      "total_records": 1024,
+      "valid_json_records": 1024,
+      "schema_valid_rate": 1.0,
+      "unique_text_ratio": 1.0,
+      "exact_duplicate_count": 0,
+      "exact_duplicate_ratio": 0.0,
+      "duplicate_prompt_count": 0,
+      "fallback_reject_count": 0,
+      "verifier_pass_rate": 1.0,
+      "verifier_pass_count": 1024,
+      "verifier_total": 1024,
+      "answer_distribution": {},
+      "retry_count": 0,
+      "accepted_records": 1024,
+      "attempted_tasks": 1024,
+      "generation_attempts": 1024,
+      "quality_reject_count": 0,
+      "quality_reject_reasons": {},
+      "domain_counts": {
+        "agentic_tool_disambiguation_1": 341,
+        "agentic_tool_disambiguation_2": 341,
+        "agentic_tool_disambiguation_0": 342
+      },
+      "label_counts": {
+        "json_match": 1024
+      },
+      "split_counts": {
+        "train": 768,
+        "val": 256
+      },
+      "lane_counts": {
+        "tool_use": 1024
+      },
+      "task_counts": {
+        "json_match": 1024
+      },
+      "lane": "tool_use",
+      "source": "synthetic-v2-hard",
+      "difficulty": "hard",
+      "records": 1024,
+      "failure_records": 1024,
+      "failure_expected_zero_rate": 1.0,
+      "loop_depth_counts": {
+        "3": 1024
+      },
+      "benchmark_cases_path": "H:\\elt_data\\synthetic_v2_hard\\tool_use\\benchmarks\\synthetic_v2_hard_tool_use_val_cases.jsonl",
+      "benchmark_manifest_path": "H:\\elt_data\\synthetic_v2_hard\\tool_use\\benchmarks\\synthetic_v2_hard_tool_use_val_manifest.yaml",
+      "rejected": {}
+    }
+  },
+  "total_records": 4096,
+  "total_failure_records": 4096
+}
