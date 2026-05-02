@@ -15,6 +15,8 @@ Manual checks:
     uv run --no-sync python scripts/pipeline.py --profile posttrain-grpo --dry-run
     uv run --no-sync python scripts/pipeline.py --profile replay-refresh --dry-run
     uv run --no-sync python scripts/pipeline.py --profile v1-pretrain-posttrain --dry-run
+    uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-hard --dry-run
+    uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-hard-grpo --dry-run
     uv run --no-sync python scripts/pipeline.py --profile synthetic-gb-side-lora-long --dry-run
     uv run --no-sync python scripts/pipeline.py --only 00_pretrain_clean --dry-run
     uv run --no-sync python scripts/pipeline.py --no-start-long-train
@@ -54,6 +56,8 @@ HF_DATASET_MIX_CONFIG = "configs/hf_dataset_mix_v1.yaml"
 HF_DATASET_MIX_ROOT = Path("H:/elt_data/hf_dataset_mix_v1")
 SYNTHETIC_V1_SEED_ROOT = Path("H:/elt_data/synthetic_v1_seed_gb")
 SYNTHETIC_V1_TARGET_BYTES = 1024 * 1024 * 1024
+SYNTHETIC_V2_HARD_ROOT = Path("H:/elt_data/synthetic_v2_hard")
+SYNTHETIC_V2_HARD_RECORDS_PER_LANE = 128
 SYNTHETIC_V1_CODE_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_code_gb/code")
 SYNTHETIC_V1_MATH_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_math_gb/math")
 SYNTHETIC_V1_STEM_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_stem_gb/stem_reasoning")
@@ -750,6 +754,35 @@ def stage_build_synthetic_v1_seed(ctx: PipelineContext) -> None:
     run_subprocess(cmd, dry_run=ctx.dry_run)
 
 
+def stage_build_synthetic_v2_hard(ctx: PipelineContext) -> None:
+    summary = SYNTHETIC_V2_HARD_ROOT / "summary.json"
+    required_lanes = ("code", "math", "stem_reasoning", "tool_use")
+    if file_nonempty(summary):
+        try:
+            payload = json.loads(summary.read_text(encoding="utf-8"))
+            lane_summaries = payload.get("lanes", {})
+            records_per_lane = int(payload.get("records_per_lane", 0) or 0)
+            lane_quality_ok = all(
+                int(lane_summaries.get(lane, {}).get("records", 0) or 0) >= SYNTHETIC_V2_HARD_RECORDS_PER_LANE
+                and float(lane_summaries.get(lane, {}).get("verifier_pass_rate", 0.0) or 0.0) >= 1.0
+                and float(lane_summaries.get(lane, {}).get("failure_expected_zero_rate", 0.0) or 0.0) >= 1.0
+                and int(lane_summaries.get(lane, {}).get("failure_records", 0) or 0) >= SYNTHETIC_V2_HARD_RECORDS_PER_LANE
+                for lane in required_lanes
+            )
+            if records_per_lane >= SYNTHETIC_V2_HARD_RECORDS_PER_LANE and lane_quality_ok:
+                print(f"  skip existing synthetic v2 hard summary: {summary}")
+                return
+        except Exception:
+            pass
+    cmd = [
+        "uv", "run", "--no-sync", "python", "-m", "elt_lm.synthetic_v2_hard",
+        "--output-root", str(SYNTHETIC_V2_HARD_ROOT),
+        "--records-per-lane", str(SYNTHETIC_V2_HARD_RECORDS_PER_LANE),
+        "--val-ratio", "0.25",
+    ]
+    run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
 def stage_hauhaucs_v1_multilane_distill(ctx: PipelineContext) -> None:
     cmd = [
         "uv", "run", "--no-sync", "elt-gguf-distill-queue",
@@ -1208,6 +1241,13 @@ SIDE_LORA_SYNTHETIC_GB_GRPO_CONFIGS: list[str] = [
     "configs/grpo_side_lora_tool_synthetic_gb.yaml",
 ]
 
+SIDE_LORA_SYNTHETIC_V2_HARD_GRPO_CONFIGS: list[str] = [
+    "configs/grpo_side_lora_code_synthetic_v2_hard.yaml",
+    "configs/grpo_side_lora_math_synthetic_v2_hard.yaml",
+    "configs/grpo_side_lora_stem_synthetic_v2_hard.yaml",
+    "configs/grpo_side_lora_tool_synthetic_v2_hard.yaml",
+]
+
 
 def stage_prepare_synthetic_gb_lora_lanes(ctx: PipelineContext) -> None:
     for lane, input_root, output_root, _config_path in SYNTHETIC_GB_LORA_PREP:
@@ -1258,6 +1298,10 @@ def stage_side_lora_synthetic_gb_grpo(ctx: PipelineContext) -> None:
     run_side_lora_grpo_configs(ctx, SIDE_LORA_SYNTHETIC_GB_GRPO_CONFIGS)
 
 
+def stage_side_lora_synthetic_v2_hard_grpo(ctx: PipelineContext) -> None:
+    run_side_lora_grpo_configs(ctx, SIDE_LORA_SYNTHETIC_V2_HARD_GRPO_CONFIGS)
+
+
 def stage_export_synthetic_gb_side_lora_adapters(ctx: PipelineContext) -> None:
     exports = [
         ("synthetic_code_gb", Path("H:/elt_data/runs/qwen35_4b_side_lora_code_sft_synthetic_gb/last.pt")),
@@ -1285,6 +1329,24 @@ def stage_export_synthetic_gb_side_lora_grpo_adapters(ctx: PipelineContext) -> N
     for name, ckpt in exports:
         if not file_nonempty(ckpt):
             raise PipelineError(f"cannot export missing synthetic GRPO side LoRA checkpoint: {ckpt}")
+        cmd = [
+            "uv", "run", "--no-sync", "python", "-m", "elt_lm.export_lora_adapter",
+            "--ckpt", str(ckpt),
+            "--out-dir", f"H:/elt_data/adapters/qwen35_4b_side/{name}",
+        ]
+        run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_export_synthetic_v2_hard_side_lora_grpo_adapters(ctx: PipelineContext) -> None:
+    exports = [
+        ("synthetic_code_v2_hard_grpo", Path("H:/elt_data/runs/grpo_side_lora_code_synthetic_v2_hard/last.pt")),
+        ("synthetic_math_v2_hard_grpo", Path("H:/elt_data/runs/grpo_side_lora_math_synthetic_v2_hard/last.pt")),
+        ("synthetic_stem_v2_hard_grpo", Path("H:/elt_data/runs/grpo_side_lora_stem_synthetic_v2_hard/last.pt")),
+        ("synthetic_tool_v2_hard_grpo", Path("H:/elt_data/runs/grpo_side_lora_tool_synthetic_v2_hard/last.pt")),
+    ]
+    for name, ckpt in exports:
+        if not file_nonempty(ckpt):
+            raise PipelineError(f"cannot export missing synthetic v2 hard GRPO side LoRA checkpoint: {ckpt}")
         cmd = [
             "uv", "run", "--no-sync", "python", "-m", "elt_lm.export_lora_adapter",
             "--ckpt", str(ckpt),
@@ -1412,6 +1474,43 @@ def stage_synthetic_gb_side_lora_cv_eval(ctx: PipelineContext) -> None:
         )
 
 
+def stage_synthetic_v2_hard_side_lora_cv_eval(ctx: PipelineContext) -> None:
+    targets = [
+        (
+            "code_v2_hard_grpo",
+            Path("H:/elt_data/runs/grpo_side_lora_code_synthetic_v2_hard/last.pt"),
+            Path("H:/elt_data/synthetic_v2_hard/code/benchmarks/synthetic_v2_hard_code_val_manifest.yaml"),
+            320,
+        ),
+        (
+            "math_v2_hard_grpo",
+            Path("H:/elt_data/runs/grpo_side_lora_math_synthetic_v2_hard/last.pt"),
+            Path("H:/elt_data/synthetic_v2_hard/math/benchmarks/synthetic_v2_hard_math_val_manifest.yaml"),
+            192,
+        ),
+        (
+            "stem_v2_hard_grpo",
+            Path("H:/elt_data/runs/grpo_side_lora_stem_synthetic_v2_hard/last.pt"),
+            Path("H:/elt_data/synthetic_v2_hard/stem_reasoning/benchmarks/synthetic_v2_hard_stem_reasoning_val_manifest.yaml"),
+            160,
+        ),
+        (
+            "tool_v2_hard_grpo",
+            Path("H:/elt_data/runs/grpo_side_lora_tool_synthetic_v2_hard/last.pt"),
+            Path("H:/elt_data/synthetic_v2_hard/tool_use/benchmarks/synthetic_v2_hard_tool_use_val_manifest.yaml"),
+            160,
+        ),
+    ]
+    for name, ckpt, manifest, max_new_tokens in targets:
+        _run_side_lora_cv_eval(
+            ctx,
+            name=name,
+            ckpt=ckpt,
+            manifest=manifest,
+            max_new_tokens=max_new_tokens,
+        )
+
+
 def stage_lm_eval_harness_optional(ctx: PipelineContext) -> None:
     out_dir = EVAL_ROOT / "lm_eval_harness"
     status_path = out_dir / "status.json"
@@ -1522,6 +1621,17 @@ SYNTHETIC_V1_PRETRAIN_POSTTRAIN_STAGES: list[Stage] = [
     Stage("03_eval_compare", stage_eval_compare),
 ]
 
+SYNTHETIC_V2_HARD_STAGES: list[Stage] = [
+    Stage("00_build_synthetic_v2_hard", stage_build_synthetic_v2_hard),
+]
+
+SYNTHETIC_V2_HARD_GRPO_STAGES: list[Stage] = [
+    Stage("00_build_synthetic_v2_hard", stage_build_synthetic_v2_hard),
+    Stage("01_side_lora_synthetic_v2_hard_grpo", stage_side_lora_synthetic_v2_hard_grpo, long_running=True),
+    Stage("02_export_synthetic_v2_hard_side_lora_grpo_adapters", stage_export_synthetic_v2_hard_side_lora_grpo_adapters),
+    Stage("03_synthetic_v2_hard_side_lora_cv_eval", stage_synthetic_v2_hard_side_lora_cv_eval, long_running=True),
+]
+
 SYNTHETIC_GB_SIDE_LORA_STAGES: list[Stage] = [
     Stage("00_prepare_synthetic_gb_lora_lanes", stage_prepare_synthetic_gb_lora_lanes),
     Stage("01_side_lora_synthetic_gb_sft", stage_side_lora_synthetic_gb_sft, long_running=True),
@@ -1548,6 +1658,8 @@ STAGE_PROFILES: dict[str, list[Stage]] = {
     "synthetic-gb-side-lora": SYNTHETIC_GB_SIDE_LORA_STAGES,
     "synthetic-gb-side-lora-long": SYNTHETIC_GB_SIDE_LORA_LONG_STAGES,
     "synthetic-v1-pretrain-posttrain": SYNTHETIC_V1_PRETRAIN_POSTTRAIN_STAGES,
+    "synthetic-v2-hard": SYNTHETIC_V2_HARD_STAGES,
+    "synthetic-v2-hard-grpo": SYNTHETIC_V2_HARD_GRPO_STAGES,
 }
 
 # Backward-compatible public name used by tests and old scripts.

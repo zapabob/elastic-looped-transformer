@@ -106,6 +106,27 @@ def test_synthetic_v1_pretrain_posttrain_profile_skips_teacher_distill() -> None
     ]
 
 
+def test_synthetic_v2_hard_profile_builds_dataset_only() -> None:
+    mod = _load_pipeline_module()
+
+    names = [stage.name for stage in mod.STAGE_PROFILES["synthetic-v2-hard"]]
+
+    assert names == ["00_build_synthetic_v2_hard"]
+
+
+def test_synthetic_v2_hard_grpo_profile_builds_trains_exports_and_evals() -> None:
+    mod = _load_pipeline_module()
+
+    names = [stage.name for stage in mod.STAGE_PROFILES["synthetic-v2-hard-grpo"]]
+
+    assert names == [
+        "00_build_synthetic_v2_hard",
+        "01_side_lora_synthetic_v2_hard_grpo",
+        "02_export_synthetic_v2_hard_side_lora_grpo_adapters",
+        "03_synthetic_v2_hard_side_lora_cv_eval",
+    ]
+
+
 def test_synthetic_gb_side_lora_profile_prepares_then_trains_adapters() -> None:
     mod = _load_pipeline_module()
 
@@ -272,6 +293,63 @@ def test_side_lora_cv_eval_uses_lane_token_budgets(monkeypatch) -> None:
     assert budgets["tool_grpo"] == 128
 
 
+def test_synthetic_v2_hard_cv_eval_uses_v2_manifests_and_budgets(monkeypatch) -> None:
+    mod = _load_pipeline_module()
+    captured: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "file_nonempty", lambda _path: True)
+    monkeypatch.setattr(
+        mod,
+        "_write_limited_benchmark_manifest",
+        lambda manifest, _out_dir, *, limit: manifest,
+    )
+    monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
+
+    mod.stage_synthetic_v2_hard_side_lora_cv_eval(mod.PipelineContext(dry_run=True))
+
+    budgets = {
+        Path(cmd[cmd.index("--run-dir") + 1]).name: int(
+            cmd[cmd.index("--bench-max-new-tokens") + 1]
+        )
+        for cmd in captured
+    }
+    manifests = {
+        Path(cmd[cmd.index("--run-dir") + 1]).name: Path(
+            cmd[cmd.index("--benchmark-manifest") + 1]
+        )
+        for cmd in captured
+    }
+    assert budgets == {
+        "code_v2_hard_grpo": 320,
+        "math_v2_hard_grpo": 192,
+        "stem_v2_hard_grpo": 160,
+        "tool_v2_hard_grpo": 160,
+    }
+    assert all("synthetic_v2_hard" in manifest.name for manifest in manifests.values())
+
+
+def test_synthetic_v2_hard_grpo_configs_point_to_v2_prompts() -> None:
+    root = Path(__file__).resolve().parents[1]
+    expected = {
+        "code": ("python_exec", 320),
+        "math": ("exact_math", 192),
+        "stem": ("mcq_reasoning", 160),
+        "tool": ("json_match", 160),
+    }
+
+    for lane, (task, max_tokens) in expected.items():
+        payload = yaml.safe_load(
+            (root / "configs" / f"grpo_side_lora_{lane}_synthetic_v2_hard.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        assert payload["grpo"]["task"] == task
+        assert payload["grpo"]["rollout_max_new_tokens"] == max_tokens
+        assert "synthetic_v2_hard" in payload["grpo"]["prompts_file"]
+        assert "synthetic_v2_hard" in payload["run_dir"]
+
+
 def test_synthetic_v1_seed_stage_requires_gb_target_before_skip(
     monkeypatch,
     tmp_path: Path,
@@ -334,6 +412,70 @@ def test_synthetic_v1_seed_stage_skips_only_when_target_bytes_and_quality_pass(
     monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
 
     mod.stage_build_synthetic_v1_seed(mod.PipelineContext(dry_run=True))
+
+    assert captured == []
+
+
+def test_synthetic_v2_hard_stage_requires_target_records(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    output_root = tmp_path / "synthetic_v2_hard"
+    output_root.mkdir()
+    summary = {
+        "records_per_lane": 4,
+        "lanes": {
+            lane: {
+                "records": 4,
+                "failure_records": 4,
+                "verifier_pass_rate": 1.0,
+                "failure_expected_zero_rate": 1.0,
+            }
+            for lane in ("code", "math", "stem_reasoning", "tool_use")
+        },
+    }
+    (output_root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    captured: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "SYNTHETIC_V2_HARD_ROOT", output_root)
+    monkeypatch.setattr(mod, "SYNTHETIC_V2_HARD_RECORDS_PER_LANE", 8)
+    monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
+
+    mod.stage_build_synthetic_v2_hard(mod.PipelineContext(dry_run=True))
+
+    assert len(captured) == 1
+    assert captured[0][3:6] == ["python", "-m", "elt_lm.synthetic_v2_hard"]
+    assert captured[0][captured[0].index("--records-per-lane") + 1] == "8"
+
+
+def test_synthetic_v2_hard_stage_skips_when_quality_passes(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    output_root = tmp_path / "synthetic_v2_hard"
+    output_root.mkdir()
+    summary = {
+        "records_per_lane": 8,
+        "lanes": {
+            lane: {
+                "records": 8,
+                "failure_records": 8,
+                "verifier_pass_rate": 1.0,
+                "failure_expected_zero_rate": 1.0,
+            }
+            for lane in ("code", "math", "stem_reasoning", "tool_use")
+        },
+    }
+    (output_root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    captured: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "SYNTHETIC_V2_HARD_ROOT", output_root)
+    monkeypatch.setattr(mod, "SYNTHETIC_V2_HARD_RECORDS_PER_LANE", 8)
+    monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
+
+    mod.stage_build_synthetic_v2_hard(mod.PipelineContext(dry_run=True))
 
     assert captured == []
 
