@@ -190,12 +190,11 @@ def _pid_is_alive(pid: int) -> bool:
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
                 capture_output=True,
-                text=True,
                 check=False,
             )
         except OSError:
             return False
-        return str(pid) in result.stdout
+        return str(pid).encode("ascii") in (result.stdout or b"")
     try:
         os.kill(pid, 0)
     except OSError:

@@ -512,6 +512,19 @@ def test_build_training_command_adds_resume_when_last_exists(tmp_path: Path) -> 
     assert plan.cmd[-2:] == ["--resume", str(run_dir / "last.pt")]
 
 
+def test_pid_is_alive_handles_tasklist_bytes(monkeypatch) -> None:
+    mod = _load_pipeline_module()
+
+    class Result:
+        stdout = b'"python.exe","1234","Console","1","1,024 K"'
+
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.subprocess, "run", lambda *args, **kwargs: Result())
+
+    assert mod._pid_is_alive(1234)
+    assert not mod._pid_is_alive(4321)
+
+
 def test_stem_sft_val_eval_builds_format_verifier_anytime_command(
     monkeypatch,
     tmp_path: Path,
