@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from safetensors.torch import save_file
 
 
 def _adapter_state_from_checkpoint(state: dict[str, Any]) -> tuple[dict[str, torch.Tensor], str]:
@@ -32,6 +33,32 @@ def _adapter_state_from_checkpoint(state: dict[str, Any]) -> tuple[dict[str, tor
     }, ""
 
 
+def _write_adapter_card(out: Path, metadata: dict[str, Any]) -> None:
+    text = f"""---
+license: apache-2.0
+library_name: transformers
+tags:
+  - elastic-looped-transformer
+  - lora
+  - adapter
+---
+
+# ELT Qwen3.5 LoRA adapter
+
+This directory contains adapter-only LoRA tensors exported from an
+`hf_qwen35_looped` ELT checkpoint. The portable tensor payload is
+`adapter_model.safetensors`; `adapter.pt` is kept for local ELT runtime
+compatibility.
+
+Base checkpoint: `{metadata.get("base_checkpoint") or "unspecified"}`
+
+Tensor count: `{metadata["num_tensors"]}`
+
+Parameter count: `{metadata["num_parameters"]}`
+"""
+    (out / "README.md").write_text(text, encoding="utf-8")
+
+
 def export_lora_adapter(ckpt_path: str | Path, out_dir: str | Path) -> Path:
     ckpt = Path(ckpt_path)
     out = Path(out_dir)
@@ -45,6 +72,8 @@ def export_lora_adapter(ckpt_path: str | Path, out_dir: str | Path) -> Path:
 
     adapter_path = out / "adapter.pt"
     torch.save(adapter_state, adapter_path)
+    safetensors_path = out / "adapter_model.safetensors"
+    save_file(adapter_state, safetensors_path, metadata={"format": "pt"})
 
     cfg = state.get("cfg")
     model_cfg = getattr(cfg, "model", None)
@@ -54,6 +83,9 @@ def export_lora_adapter(ckpt_path: str | Path, out_dir: str | Path) -> Path:
         "base_checkpoint": base_checkpoint,
         "num_tensors": len(adapter_state),
         "num_parameters": int(sum(t.numel() for t in adapter_state.values())),
+        "adapter_pt": str(adapter_path),
+        "adapter_safetensors": str(safetensors_path),
+        "hf_upload_command": "hf upload <repo-id> . . --repo-type model",
         "rank": getattr(model_cfg, "hf_lora_rank", None),
         "alpha": getattr(model_cfg, "hf_lora_alpha", None),
         "top_layers": getattr(model_cfg, "hf_lora_top_layers", None),
@@ -63,6 +95,7 @@ def export_lora_adapter(ckpt_path: str | Path, out_dir: str | Path) -> Path:
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    _write_adapter_card(out, metadata)
     return adapter_path
 
 

@@ -259,6 +259,79 @@ Bundles `configuration_elt.py`, `modeling_elt.py`, `config.json`,
 `model.safetensors`, tokenizer files, and a rendered `README.md`. Downstream
 users only need `pip install transformers`.
 
+For the Qwen3.5 side-LoRA bridge runs, export the adapter payload separately:
+
+```bash
+uv run elt-export-lora-adapter \
+  --ckpt H:/elt_data/runs/grpo_side_lora_stem_synthetic_v2_bridge/last.pt \
+  --out-dir H:/elt_data/adapters/qwen35_4b_side/synthetic_stem_v2_bridge_grpo_candidate
+```
+
+This now writes both local-runtime `adapter.pt` and portable
+`adapter_model.safetensors` plus `adapter_config.json` and a minimal model card.
+The 2026-05-03 stem bridge candidate has been exported at
+`H:/elt_data/adapters/qwen35_4b_side/synthetic_stem_v2_bridge_grpo_candidate`
+(`adapter_model.safetensors`, 64,987,976 bytes).
+
+GGUF release readiness follows the current llama.cpp path: first produce a
+Transformers/HF directory with `config.json`, tokenizer files, and safetensors,
+then run `convert_hf_to_gguf.py`, then upload the resulting `.gguf` to a
+separate `*-GGUF` model repo. The repo helper records the exact commands and
+blockers:
+
+```bash
+uv run python -m elt_lm.release_readiness \
+  --hf-dir hf_export/elt-lm-qwen35-side-stem-v2-bridge \
+  --gguf-path H:/elt_data/releases/elt-lm-qwen35-side-stem-v2-bridge.gguf \
+  --repo-id zapabob/elt-lm-qwen35-side-stem-v2-bridge \
+  --llama-cpp-dir C:/Users/downl/Desktop/llama.cpp-zapabob \
+  --out _docs/assets/2026-05-03-deepresearch-elt-llm-implementation/release_readiness_stem_bridge.json
+```
+
+Current status: adapter safetensors are ready; merged/full HF safetensors and
+GGUF are not yet claimed ready because the side-LoRA bridge has not been merged
+into a HF-loadable base directory for llama.cpp conversion.
+
+## Cross-validated benchmark comparison
+
+`elt-anytime` already emits case-level correctness and K-fold accuracy summaries
+for local verifier-backed benchmark manifests. For vanilla-vs-finished model
+comparison, preserve paired case/fold order and run:
+
+```bash
+uv run python -m elt_lm.eval.benchmark_comparison \
+  --input reports/vanilla_vs_complete_groups.json \
+  --out-json reports/vanilla_vs_complete_stats.json \
+  --out-md reports/vanilla_vs_complete_stats.md
+```
+
+Input schema:
+
+```json
+{
+  "benchmark": "mmlu_stem_cv",
+  "groups": {
+    "vanilla": [0, 1, 0, 1],
+    "sft_replay": [0, 1, 1, 1],
+    "complete": [1, 1, 1, 1]
+  }
+}
+```
+
+The report includes mean, SD, SEM, 95% CI, paired permutation p-values for every
+group pair, and a Friedman within-block permutation p-value when at least three
+groups are supplied. Use lm-eval-harness for broad external tasks with logged
+samples, e.g. `lm-eval run --model hf --model_args pretrained=<hf_export_dir>
+--tasks gsm8k,mmlu_stem,hellaswag --output_path <dir> --log_samples`, then
+convert the paired sample correctness arrays into the JSON schema above.
+
+Current measured bridge diagnostics are limited to internal synthetic-v2 bridge
+verifiers, not broad lm-eval claims: stem is the only export/eval candidate
+(mean correct 0.8958, final correct 1.0), code and math are sparse-success
+lanes, and tool-use is blocked because reward/advantage signal remained zero.
+Full vanilla-vs-complete lm-eval p-values should not be reported until both
+groups have completed the same paired task set.
+
 ## Rolling checkpoints
 
 - `rolling_{0..keep-1}.pt` round-robin every `rolling_ckpt_interval_sec` (5 min default)

@@ -80,6 +80,8 @@ elt-export-lora-adapter = "elt_lm.export_lora_adapter:cli"
 elt-infer = "elt_lm.infer:cli"
 elt-tokenize = "elt_lm.tokenize_data:cli"
 elt-anytime = "elt_lm.eval.anytime_sweep:cli"
+elt-compare-benchmarks = "elt_lm.eval.benchmark_comparison:cli"
+elt-release-readiness = "elt_lm.release_readiness:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/elt_lm"]

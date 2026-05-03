@@ -1,0 +1,18 @@
+{
+  "repo_id": "zapabob/elt-lm-qwen35-side-stem-v2-bridge",
+  "hf_dir": "hf_export\\elt-lm-qwen35-side-stem-v2-bridge",
+  "gguf_path": "H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge.gguf",
+  "hf_safetensors_ready": false,
+  "gguf_ready": false,
+  "llama_cpp_converter": "C:\\Users\\downl\\Desktop\\llama.cpp-zapabob\\convert_hf_to_gguf.py",
+  "llama_cpp_converter_exists": true,
+  "commands": {
+    "hf_upload": "hf upload zapabob/elt-lm-qwen35-side-stem-v2-bridge hf_export\\elt-lm-qwen35-side-stem-v2-bridge . --repo-type model",
+    "gguf_convert": "python C:\\Users\\downl\\Desktop\\llama.cpp-zapabob\\convert_hf_to_gguf.py hf_export\\elt-lm-qwen35-side-stem-v2-bridge --outfile H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge.gguf",
+    "gguf_upload": "hf upload zapabob/elt-lm-qwen35-side-stem-v2-bridge-GGUF H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge.gguf elt-lm-qwen35-side-stem-v2-bridge.gguf --repo-type model"
+  },
+  "blocking_notes": [
+    "HF directory must contain config.json, tokenizer files, and safetensors weights before GGUF conversion.",
+    "GGUF is not present yet; run commands.gguf_convert after HF safetensors export is ready."
+  ]
+}

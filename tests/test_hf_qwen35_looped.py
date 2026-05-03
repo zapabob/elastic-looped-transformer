@@ -254,7 +254,9 @@ def test_export_lora_adapter_writes_small_artifact(tmp_path: Path) -> None:
     adapter_path = export_lora_adapter(ckpt, tmp_path / "adapter")
 
     assert adapter_path.exists()
+    assert (tmp_path / "adapter" / "adapter_model.safetensors").exists()
     assert (tmp_path / "adapter" / "adapter_config.json").exists()
+    assert (tmp_path / "adapter" / "README.md").exists()
 
 
 def test_bootstrap_qwen35_elt_checkpoint_roundtrip(tmp_path: Path) -> None:
