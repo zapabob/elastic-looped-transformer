@@ -2,7 +2,8 @@
 
 This repository publishes the small, human-readable training/evaluation data
 used by the current synthetic-v2-hard GRPO and bridge experiments under
-`training_data/synthetic_v2_hard/`.
+`training_data/synthetic_v2_hard/`, plus the OpenClaw/Helmes general-agent
+synthetic set under `training_data/synthetic_v2_agent/`.
 
 The large local tokenized SFT bins under `H:/elt_data/posttrain_synthetic/*` and
 `H:/elt_data/bin/*` are not committed because they are generated artifacts.
@@ -16,8 +17,9 @@ They can be regenerated from the scripts and manifests in this repository.
 | `training_data/synthetic_v2_hard/math/` | math SFT, failure contrast, GRPO prompts | exact-answer arithmetic/reasoning tasks |
 | `training_data/synthetic_v2_hard/stem_reasoning/` | STEM SFT, failure contrast, GRPO prompts | multiple-choice reasoning tasks |
 | `training_data/synthetic_v2_hard/tool_use/` | tool-use SFT, failure contrast, GRPO prompts | structured JSON/tool-selection tasks |
+| `training_data/synthetic_v2_agent/` | OpenClaw/Helmes agent SFT, failure contrast, eval prompts | general-agent JSON plans for safe tool sequencing, evidence collection, release ops, monitoring, and handoff |
 
-Each lane contains:
+Each lane or standalone dataset contains:
 
 - `distill_train.jsonl` and `distill_val.jsonl`: correct verifier-passing traces.
 - `failures_train.jsonl` and `failures_val.jsonl`: intentionally wrong contrast traces.
@@ -33,6 +35,7 @@ template/verifier pipeline:
 - `src/elt_lm/synthetic_v2_code_bridge.py`
 - `src/elt_lm/synthetic_v2_reasoning_bridge.py`
 - `src/elt_lm/verifiers.py`
+- `src/elt_lm/synthetic_v2_agent.py`
 
 Please cite this repository commit when using the included synthetic data. The
 method follows the ELT/ILSD setup and GRPO-style verifier optimization:
@@ -57,4 +60,3 @@ reasoning records, local Wikipedia text snapshots, `H:/from_D/dataset/final`,
 and WebDataset-derived JSONL. Those local files are not redistributed here; if
 they are used in a model release, publish the exact source inventory available
 for that run.
-

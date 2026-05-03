@@ -136,6 +136,14 @@ def test_synthetic_v2_hard_profile_builds_dataset_only() -> None:
     assert names == ["00_build_synthetic_v2_hard"]
 
 
+def test_synthetic_v2_agent_profile_builds_dataset_only() -> None:
+    mod = _load_pipeline_module()
+
+    names = [stage.name for stage in mod.STAGE_PROFILES["synthetic-v2-agent"]]
+
+    assert names == ["00_build_synthetic_v2_agent"]
+
+
 def test_synthetic_v2_hard_grpo_profile_builds_trains_exports_and_evals() -> None:
     mod = _load_pipeline_module()
 
@@ -519,6 +527,64 @@ def test_synthetic_v2_hard_stage_skips_when_quality_passes(
     monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
 
     mod.stage_build_synthetic_v2_hard(mod.PipelineContext(dry_run=True))
+
+    assert captured == []
+
+
+def test_synthetic_v2_agent_stage_requires_quality(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    output_root = tmp_path / "synthetic_v2_agent"
+    output_root.mkdir()
+    summary = {
+        "agent_lane": "openclaw_helmes_agent",
+        "records": 4,
+        "failure_records": 4,
+        "verifier_pass_rate": 1.0,
+        "failure_expected_zero_rate": 1.0,
+        "exact_duplicate_count": 0,
+        "duplicate_prompt_count": 0,
+    }
+    (output_root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    captured: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "SYNTHETIC_V2_AGENT_ROOT", output_root)
+    monkeypatch.setattr(mod, "SYNTHETIC_V2_AGENT_RECORDS", 8)
+    monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
+
+    mod.stage_build_synthetic_v2_agent(mod.PipelineContext(dry_run=True))
+
+    assert len(captured) == 1
+    assert captured[0][3:6] == ["python", "-m", "elt_lm.synthetic_v2_agent"]
+    assert captured[0][captured[0].index("--records") + 1] == "8"
+
+
+def test_synthetic_v2_agent_stage_skips_when_quality_passes(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    mod = _load_pipeline_module()
+    output_root = tmp_path / "synthetic_v2_agent"
+    output_root.mkdir()
+    summary = {
+        "agent_lane": "openclaw_helmes_agent",
+        "records": 8,
+        "failure_records": 8,
+        "verifier_pass_rate": 1.0,
+        "failure_expected_zero_rate": 1.0,
+        "exact_duplicate_count": 0,
+        "duplicate_prompt_count": 0,
+    }
+    (output_root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    captured: list[list[str]] = []
+
+    monkeypatch.setattr(mod, "SYNTHETIC_V2_AGENT_ROOT", output_root)
+    monkeypatch.setattr(mod, "SYNTHETIC_V2_AGENT_RECORDS", 8)
+    monkeypatch.setattr(mod, "run_subprocess", lambda cmd, dry_run=False: captured.append(cmd))
+
+    mod.stage_build_synthetic_v2_agent(mod.PipelineContext(dry_run=True))
 
     assert captured == []
 

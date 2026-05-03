@@ -18,6 +18,7 @@ Manual checks:
     uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-hard --dry-run
     uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-hard-grpo --dry-run
     uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-bridge-ilsd --dry-run
+    uv run --no-sync python scripts/pipeline.py --profile synthetic-v2-agent --dry-run
     uv run --no-sync python scripts/pipeline.py --profile synthetic-gb-side-lora-long --dry-run
     uv run --no-sync python scripts/pipeline.py --only 00_pretrain_clean --dry-run
     uv run --no-sync python scripts/pipeline.py --no-start-long-train
@@ -59,6 +60,8 @@ SYNTHETIC_V1_SEED_ROOT = Path("H:/elt_data/synthetic_v1_seed_gb")
 SYNTHETIC_V1_TARGET_BYTES = 1024 * 1024 * 1024
 SYNTHETIC_V2_HARD_ROOT = Path("H:/elt_data/synthetic_v2_hard")
 SYNTHETIC_V2_HARD_RECORDS_PER_LANE = 1024
+SYNTHETIC_V2_AGENT_ROOT = Path("H:/elt_data/synthetic_v2_agent")
+SYNTHETIC_V2_AGENT_RECORDS = 1024
 SYNTHETIC_V1_CODE_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_code_gb/code")
 SYNTHETIC_V1_MATH_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_math_gb/math")
 SYNTHETIC_V1_STEM_GB_INPUT_ROOT = Path("H:/elt_data/synthetic_v1_stem_gb/stem_reasoning")
@@ -789,6 +792,34 @@ def stage_build_synthetic_v2_hard(ctx: PipelineContext) -> None:
         "uv", "run", "--no-sync", "python", "-m", "elt_lm.synthetic_v2_hard",
         "--output-root", str(SYNTHETIC_V2_HARD_ROOT),
         "--records-per-lane", str(SYNTHETIC_V2_HARD_RECORDS_PER_LANE),
+        "--val-ratio", "0.25",
+    ]
+    run_subprocess(cmd, dry_run=ctx.dry_run)
+
+
+def stage_build_synthetic_v2_agent(ctx: PipelineContext) -> None:
+    summary = SYNTHETIC_V2_AGENT_ROOT / "summary.json"
+    if file_nonempty(summary):
+        try:
+            payload = json.loads(summary.read_text(encoding="utf-8"))
+            quality_ok = (
+                str(payload.get("agent_lane", "")) == "openclaw_helmes_agent"
+                and int(payload.get("records", 0) or 0) >= SYNTHETIC_V2_AGENT_RECORDS
+                and int(payload.get("failure_records", 0) or 0) >= SYNTHETIC_V2_AGENT_RECORDS
+                and float(payload.get("verifier_pass_rate", 0.0) or 0.0) >= 1.0
+                and float(payload.get("failure_expected_zero_rate", 0.0) or 0.0) >= 1.0
+                and int(payload.get("exact_duplicate_count", 1) or 0) == 0
+                and int(payload.get("duplicate_prompt_count", 1) or 0) == 0
+            )
+            if quality_ok:
+                print(f"  skip existing synthetic v2 agent summary: {summary}")
+                return
+        except Exception:
+            pass
+    cmd = [
+        "uv", "run", "--no-sync", "python", "-m", "elt_lm.synthetic_v2_agent",
+        "--output-root", str(SYNTHETIC_V2_AGENT_ROOT),
+        "--records", str(SYNTHETIC_V2_AGENT_RECORDS),
         "--val-ratio", "0.25",
     ]
     run_subprocess(cmd, dry_run=ctx.dry_run)
@@ -1754,6 +1785,10 @@ SYNTHETIC_V2_HARD_STAGES: list[Stage] = [
     Stage("00_build_synthetic_v2_hard", stage_build_synthetic_v2_hard),
 ]
 
+SYNTHETIC_V2_AGENT_STAGES: list[Stage] = [
+    Stage("00_build_synthetic_v2_agent", stage_build_synthetic_v2_agent),
+]
+
 SYNTHETIC_V2_HARD_GRPO_STAGES: list[Stage] = [
     Stage("00_build_synthetic_v2_hard", stage_build_synthetic_v2_hard),
     Stage("01_side_lora_synthetic_v2_hard_grpo", stage_side_lora_synthetic_v2_hard_grpo, long_running=True),
@@ -1797,6 +1832,7 @@ STAGE_PROFILES: dict[str, list[Stage]] = {
     "synthetic-gb-side-lora-long": SYNTHETIC_GB_SIDE_LORA_LONG_STAGES,
     "synthetic-v1-pretrain-posttrain": SYNTHETIC_V1_PRETRAIN_POSTTRAIN_STAGES,
     "synthetic-v2-hard": SYNTHETIC_V2_HARD_STAGES,
+    "synthetic-v2-agent": SYNTHETIC_V2_AGENT_STAGES,
     "synthetic-v2-hard-grpo": SYNTHETIC_V2_HARD_GRPO_STAGES,
     "synthetic-v2-bridge-ilsd": SYNTHETIC_V2_BRIDGE_ILSD_STAGES,
 }

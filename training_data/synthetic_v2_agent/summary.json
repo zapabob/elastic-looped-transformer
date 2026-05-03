@@ -1,0 +1,100 @@
+{
+  "total_records": 1024,
+  "valid_json_records": 1024,
+  "schema_valid_rate": 1.0,
+  "unique_text_ratio": 1.0,
+  "exact_duplicate_count": 0,
+  "exact_duplicate_ratio": 0.0,
+  "duplicate_prompt_count": 0,
+  "fallback_reject_count": 0,
+  "verifier_pass_rate": 1.0,
+  "verifier_pass_count": 1024,
+  "verifier_total": 1024,
+  "answer_distribution": {},
+  "retry_count": 0,
+  "accepted_records": 1024,
+  "attempted_tasks": 1024,
+  "generation_attempts": 1024,
+  "quality_reject_count": 0,
+  "quality_reject_reasons": {},
+  "domain_counts": {
+    "openclaw_secret_safe_provider_diagnostics": 86,
+    "helmes_general_agent_task_ladder": 86,
+    "hf_github_cited_publish_plan": 86,
+    "defensive_security_static_first_triage": 85,
+    "memory_with_live_verification": 85,
+    "connector_read_only_briefing": 85,
+    "desktop_companion_local_first_plan": 85,
+    "checkpoint_safe_stall_recovery": 85,
+    "agent_lora_sft_bridge_probe": 85,
+    "openclaw_repo_triage_patch_plan": 86,
+    "elt_sparse_monitoring_decision": 85,
+    "scoped_git_closeout_multi_repo": 85
+  },
+  "label_counts": {
+    "json_match": 1024
+  },
+  "split_counts": {
+    "train": 768,
+    "val": 256
+  },
+  "lane_counts": {
+    "tool_use": 1024
+  },
+  "task_counts": {
+    "openclaw_secret_safe_provider_diagnostics": 86,
+    "helmes_general_agent_task_ladder": 86,
+    "hf_github_cited_publish_plan": 86,
+    "defensive_security_static_first_triage": 85,
+    "memory_with_live_verification": 85,
+    "connector_read_only_briefing": 85,
+    "desktop_companion_local_first_plan": 85,
+    "checkpoint_safe_stall_recovery": 85,
+    "agent_lora_sft_bridge_probe": 85,
+    "openclaw_repo_triage_patch_plan": 86,
+    "elt_sparse_monitoring_decision": 85,
+    "scoped_git_closeout_multi_repo": 85
+  },
+  "source": "synthetic-v2-agent-openclaw-helmes",
+  "agent_lane": "openclaw_helmes_agent",
+  "output_root": "training_data\\synthetic_v2_agent",
+  "records_requested": 1024,
+  "records": 1024,
+  "train_records": 768,
+  "val_records": 256,
+  "failure_records": 1024,
+  "failure_expected_zero_rate": 1.0,
+  "difficulty_counts": {
+    "bridge": 512,
+    "hard": 512
+  },
+  "agent_focus_counts": {
+    "openclaw_repo_ops": 86,
+    "openclaw_provider_diagnostics": 86,
+    "helmes_general_agent": 86,
+    "release_ops": 86,
+    "long_run_monitoring": 85,
+    "security_triage": 85,
+    "context_engineering": 85,
+    "connector_agent": 85,
+    "git_closeout": 85,
+    "desktop_companion": 85,
+    "failure_recovery": 85,
+    "lora_sft_bridge": 85
+  },
+  "safety_risk_counts": {
+    "medium": 512,
+    "high": 512
+  },
+  "failure_counts": {
+    "wrong_tool_order": 171,
+    "secret_exposure": 86,
+    "missing_evidence": 342,
+    "ignores_stop_condition": 170,
+    "unsafe_mutation": 170,
+    "no_replay_guard": 85
+  },
+  "benchmark_cases_path": "training_data\\synthetic_v2_agent\\benchmarks\\synthetic_v2_agent_val_cases.jsonl",
+  "benchmark_manifest_path": "training_data\\synthetic_v2_agent\\benchmarks\\synthetic_v2_agent_val_manifest.yaml",
+  "rejected": {}
+}

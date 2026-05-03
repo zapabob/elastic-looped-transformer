@@ -1,0 +1,7 @@
+benchmarks:
+- name: synthetic_v2_agent_val
+  kind: jsonl
+  task: json_match
+  path: training_data\synthetic_v2_agent\benchmarks\synthetic_v2_agent_val_cases.jsonl
+  prompt_field: prompt
+  reference_field: reference
