@@ -1,0 +1,1 @@
+16:9 Japanese technical infographic. Title: GGUF量子化評価 BF16/Q8_0/TQ4_1S. Use only the measured CSV/JSON values from gguf_quant_cv_report.json. Show artifact size, prompt/decode throughput with error bars, perplexity, logits KL if present, Friedman/Wilcoxon p-values, and a clear note that this is a local short-run release validation.

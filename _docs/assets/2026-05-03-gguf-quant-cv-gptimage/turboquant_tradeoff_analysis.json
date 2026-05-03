@@ -1,0 +1,47 @@
+{
+  "generated_at": "2026-05-03",
+  "source_summary_csv": "_docs\\assets\\2026-05-03-gguf-quant-cv-gptimage\\gguf_quant_cv_summary.csv",
+  "source_pairwise_csv": "_docs\\assets\\2026-05-03-gguf-quant-cv-gptimage\\gguf_quant_cv_pairwise.csv",
+  "source_omnibus_csv": "_docs\\assets\\2026-05-03-gguf-quant-cv-gptimage\\gguf_quant_cv_omnibus.csv",
+  "metrics": {
+    "size_bf16_gib": 9.029916673898697,
+    "size_q8_gib": 4.803613573312759,
+    "size_tq_gib": 4.160610526800156,
+    "tq_size_reduction_vs_bf16_pct": 53.924153709783916,
+    "tq_size_reduction_vs_q8_pct": 13.38581958559093,
+    "prompt_bf16": 217.15066666666667,
+    "prompt_q8": 248.76533333333333,
+    "prompt_tq": 0.7878676666666666,
+    "decode_bf16": 27.830366666666666,
+    "decode_q8": 40.400333333333336,
+    "decode_tq": 0.6877783333333334,
+    "tq_prompt_vs_bf16_pct": 0.36282074504338,
+    "tq_prompt_vs_q8_pct": 0.3167111977017162,
+    "tq_decode_vs_bf16_pct": 2.4713232907459597,
+    "tq_decode_vs_q8_pct": 1.7024075708946298,
+    "ppl_bf16": 11313.6738,
+    "ppl_q8": 13677.2349,
+    "ppl_tq": 21648.79,
+    "tq_ppl_vs_bf16_x": 1.9135066453833944,
+    "q8_ppl_vs_bf16_x": 1.2089119009247022,
+    "kl_q8": 1.64035,
+    "kl_tq": 1.8819,
+    "kv_mib": 1024.0,
+    "rs_mib": 6432.0,
+    "tq_kl_delta_vs_q8": 0.24154999999999993,
+    "friedman_prompt_p": 0.04978706836786395,
+    "friedman_decode_p": 0.04978706836786395
+  },
+  "benefits": [
+    "TQ4_1S shrinks the GGUF artifact to 4.16 GiB, 53.9% smaller than BF16 and 13.4% smaller than Q8_0.",
+    "It preserves the handoff path as a loadable GGUF with Turboquant metadata, useful for distribution and runtime integration experiments.",
+    "KV and recurrent-state allocations in this short run are not worse than BF16/Q8_0: 1024 MiB KV and 6432 MiB recurrent state."
+  ],
+  "costs": [
+    "Current local llama.cpp/Turboquant path is not performance-ready: prompt throughput is 0.36% of BF16 and 0.32% of Q8_0; decode is 2.47% of BF16 and 1.70% of Q8_0.",
+    "Short held-out perplexity worsens to 1.91x BF16, while Q8_0 is 1.21x BF16.",
+    "Logits KL vs BF16 is higher than Q8_0: 1.8819 vs 1.64035 in the one-chunk logits probe.",
+    "The q8_0/q8_0 KV-cache bench was not common across all groups because BF16 failed context creation in that setting, so the paired analysis uses f16/f16 KV."
+  ],
+  "interpretation": "Turboquant is currently best framed as a compact release/research handoff format, not the fastest serving path in this local build. Its main next milestone is runtime/kernel optimization and broader paired lm-eval validation."
+}

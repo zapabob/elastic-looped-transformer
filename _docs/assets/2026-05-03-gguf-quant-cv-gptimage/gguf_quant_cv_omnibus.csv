@@ -1,0 +1,3 @@
+metric,groups,n_blocks,statistic,p_value,method
+decode_tps,"['BF16', 'Q8_0', 'TQ4_1S']",3,6.0,0.04978706836786395,scipy.stats.friedmanchisquare
+prompt_eval_tps,"['BF16', 'Q8_0', 'TQ4_1S']",3,6.0,0.04978706836786395,scipy.stats.friedmanchisquare

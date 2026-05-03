@@ -1,0 +1,244 @@
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 12287 MiB):
+  Device 0: NVIDIA GeForce RTX 3060, compute capability 8.6, VMM: yes, VRAM: 12287 MiB
+common_init_result: fitting params to device memory, for bugs during this step try to reproduce them with -fit off, or provide --verbose logs if the bug only occurs with -fit on
+llama_params_fit_impl: projected to use 10712 MiB of device memory vs. 4818 MiB of free device memory
+llama_params_fit_impl: cannot meet free memory target of 1024 MiB, need to reduce device memory by 6918 MiB
+llama_params_fit_impl: context size set by user to 2048 -> no change
+llama_params_fit_impl: filling dense layers back-to-front:
+llama_params_fit_impl:   - CUDA0 (NVIDIA GeForce RTX 3060):  6 layers,   3772 MiB used,   1045 MiB free
+llama_params_fit: successfully fit params to free device memory
+llama_params_fit: fitting params to free memory took 1.71 seconds
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 3060) (0000:01:00.0) - 11250 MiB free
+llama_model_loader: loaded meta data with 86 key-value pairs and 427 tensors from H:/elt_data/releases/elt-lm-qwen35-side-stem-v2-bridge-TQ4_1S.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - kv   0:                       general.architecture str              = qwen35
+llama_model_loader: - kv   1:                               general.type str              = model
+llama_model_loader: - kv   2:                               general.name str              = Elt Lm Qwen35 Side Stem v2 Bridge Merged
+llama_model_loader: - kv   3:                         general.size_label str              = 4.8B
+llama_model_loader: - kv   4:                            general.license str              = apache-2.0
+llama_model_loader: - kv   5:                   general.base_model.count u32              = 1
+llama_model_loader: - kv   6:                  general.base_model.0.name str              = Huihui Qwen3.5 4B Claude 4.6 Opus Abl...
+llama_model_loader: - kv   7:               general.base_model.0.version str              = 4.6
+llama_model_loader: - kv   8:          general.base_model.0.organization str              = Huihui Ai
+llama_model_loader: - kv   9:              general.base_model.0.repo_url str              = https://huggingface.co/huihui-ai/Huih...
+llama_model_loader: - kv  10:                               general.tags arr[str,5]       = ["elastic-looped-transformer", "qwen3...
+llama_model_loader: - kv  11:                         qwen35.block_count u32              = 32
+llama_model_loader: - kv  12:                      qwen35.context_length u32              = 262144
+llama_model_loader: - kv  13:                    qwen35.embedding_length u32              = 2560
+llama_model_loader: - kv  14:                 qwen35.feed_forward_length u32              = 9216
+llama_model_loader: - kv  15:                qwen35.attention.head_count u32              = 16
+llama_model_loader: - kv  16:             qwen35.attention.head_count_kv u32              = 4
+llama_model_loader: - kv  17:             qwen35.rope.dimension_sections arr[i32,4]       = [11, 11, 10, 0]
+llama_model_loader: - kv  18:                      qwen35.rope.freq_base f32              = 10000000.000000
+llama_model_loader: - kv  19:    qwen35.attention.layer_norm_rms_epsilon f32              = 0.000001
+llama_model_loader: - kv  20:                qwen35.attention.key_length u32              = 256
+llama_model_loader: - kv  21:              qwen35.attention.value_length u32              = 256
+llama_model_loader: - kv  22:                     qwen35.ssm.conv_kernel u32              = 4
+llama_model_loader: - kv  23:                      qwen35.ssm.state_size u32              = 128
+llama_model_loader: - kv  24:                     qwen35.ssm.group_count u32              = 16
+llama_model_loader: - kv  25:                  qwen35.ssm.time_step_rank u32              = 32
+llama_model_loader: - kv  26:                      qwen35.ssm.inner_size u32              = 4096
+llama_model_loader: - kv  27:             qwen35.full_attention_interval u32              = 4
+llama_model_loader: - kv  28:                qwen35.rope.dimension_count u32              = 64
+llama_model_loader: - kv  29:                          tq_schema_version u32              = 1
+llama_model_loader: - kv  30:                              tq_total_bits arr[f32,32]      = [3.500000, 3.500000, 3.500000, 3.5000...
+llama_model_loader: - kv  31:                tq_runtime_bits_per_channel arr[f32,32]      = [3.250000, 3.250000, 3.250000, 3.2500...
+llama_model_loader: - kv  32:                   tq_stage1_effective_bits arr[f32,32]      = [2.250000, 2.250000, 2.250000, 2.2500...
+llama_model_loader: - kv  33:                                tq_qjl_bits arr[i32,32]      = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+llama_model_loader: - kv  34:                                 tq_qjl_dim arr[i32,32]      = [160, 160, 160, 160, 160, 160, 160, 1...
+llama_model_loader: - kv  35:                         tq_rotation_policy arr[str,32]      = ["block_so8_learned", "block_so8_lear...
+llama_model_loader: - kv  36:                           tq_rotation_seed arr[i32,32]      = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ...
+llama_model_loader: - kv  37:                                tq_qjl_seed arr[i32,32]      = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+llama_model_loader: - kv  38:                           tq_triality_mode arr[str,32]      = ["triality_proxy", "triality_proxy", ...
+llama_model_loader: - kv  39:                           tq_triality_view arr[str,32]      = ["vector", "vector", "vector", "vecto...
+llama_model_loader: - kv  40:                tq_stage1_allocation_scheme arr[str,32]      = ["magnitude-topk", "magnitude-topk", ...
+llama_model_loader: - kv  41:           tq_stage1_bitwidth_payload_dtype arr[str,32]      = ["uint8", "uint8", "uint8", "uint8", ...
+llama_model_loader: - kv  42:                              tq_norm_dtype arr[str,32]      = ["float32", "float32", "float32", "fl...
+llama_model_loader: - kv  43:                        tq_sign_pack_format arr[str,32]      = ["int8_unpacked_binary", "int8_unpack...
+llama_model_loader: - kv  44:                       tokenizer.ggml.model str              = gpt2
+llama_model_loader: - kv  45:                         tokenizer.ggml.pre str              = qwen35
+llama_model_loader: - kv  46:                      tokenizer.ggml.tokens arr[str,248320]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+llama_model_loader: - kv  47:                  tokenizer.ggml.token_type arr[i32,248320]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+llama_model_loader: - kv  48:                      tokenizer.ggml.merges arr[str,247587]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+llama_model_loader: - kv  49:                tokenizer.ggml.eos_token_id u32              = 248046
+llama_model_loader: - kv  50:            tokenizer.ggml.padding_token_id u32              = 248044
+llama_model_loader: - kv  51:                    tokenizer.chat_template str              = {%- set image_count = namespace(value...
+llama_model_loader: - kv  52:               general.quantization_version u32              = 2
+llama_model_loader: - kv  53:                          general.file_type u32              = 1024
+llama_model_loader: - kv  54:  hypura.turboquant.weight.generated_at_utc str              = 2026-05-03T11:44:44.536324+00:00
+llama_model_loader: - kv  55:           hypura.turboquant.schema_version i64              = 1
+llama_model_loader: - kv  56:                  hypura.turboquant.enabled bool             = true
+llama_model_loader: - kv  57:                     hypura.turboquant.mode str              = triality-proxy-so8-pareto
+llama_model_loader: - kv  58:                    hypura.turboquant.codec str              = tq4_1s
+llama_model_loader: - kv  59:          hypura.turboquant.rotation_policy str              = block_so8_learned
+llama_model_loader: - kv  60:      hypura.turboquant.rotation_block_size i64              = 8
+llama_model_loader: - kv  61:            hypura.turboquant.rotation_seed i64              = 17
+llama_model_loader: - kv  62:            hypura.turboquant.triality_view str              = vector
+llama_model_loader: - kv  63:             hypura.turboquant.triality_mix f64              = 0.750000
+llama_model_loader: - kv  64:             hypura.turboquant.cache_type_k str              = triality-vector
+llama_model_loader: - kv  65:             hypura.turboquant.cache_type_v str              = q8_0
+llama_model_loader: - kv  66:     hypura.turboquant.view_bundle_complete bool             = true
+llama_model_loader: - kv  67:      hypura.turboquant.orthogonality_error f64              = 0.000000
+llama_model_loader: - kv  68:    hypura.turboquant.determinant_error_max f64              = 0.000000
+llama_model_loader: - kv  69:           hypura.turboquant.paper_fidelity bool             = false
+llama_model_loader: - kv  70:                   hypura.turboquant.k_bits f64              = 3.500000
+llama_model_loader: - kv  71:                   hypura.turboquant.v_bits f64              = 8.000000
+llama_model_loader: - kv  72:           hypura.turboquant.payload_format str              = json-inline-v1
+llama_model_loader: - kv  73:            hypura.turboquant.payload_bytes i64              = 1279
+llama_model_loader: - kv  74:             hypura.turboquant.payload_json str              = {"cache_type_k":"triality-vector","ca...
+llama_model_loader: - kv  75:             hypura.turboquant.runtime_mode str              = key_only_block_so8_triality_vector
+llama_model_loader: - kv  76:           hypura.turboquant.weight.enabled bool             = true
+llama_model_loader: - kv  77:             hypura.turboquant.weight.codec str              = tq4_1s
+llama_model_loader: - kv  78:      hypura.turboquant.weight.source_ftype str              = q8_0
+llama_model_loader: - kv  79:            hypura.turboquant.weight.policy str              = qwen35-config-i
+llama_model_loader: - kv  80:   hypura.turboquant.weight.protected_roles str              = ["embedding","norm","output_head","re...
+llama_model_loader: - kv  81:  hypura.turboquant.weight.protected_layers str              = [0,1,30,31]
+llama_model_loader: - kv  82:    hypura.turboquant.weight.modality_scope str              = text-only
+llama_model_loader: - kv  83:    hypura.turboquant.weight.payload_format str              = json-inline-v1
+llama_model_loader: - kv  84:     hypura.turboquant.weight.payload_bytes i64              = 525
+llama_model_loader: - kv  85:      hypura.turboquant.weight.payload_json str              = {"codec":"tq4_1s","enabled":true,"mod...
+llama_model_loader: - type  f32:  177 tensors
+llama_model_loader: - type q8_0:  166 tensors
+llama_model_loader: - type tq4_1s:   84 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = all F32 (guessed)
+print_info: file size   = 4.15 GiB (7.36 BPW)
+load: 0 unused tokens
+load: printing all EOG tokens:
+load:   - 248044 ('<|endoftext|>')
+load:   - 248046 ('<|im_end|>')
+load:   - 248063 ('<|fim_pad|>')
+load:   - 248064 ('<|repo_name|>')
+load:   - 248065 ('<|file_sep|>')
+load: special tokens cache size = 33
+load: token to piece cache size = 1.7581 MB
+print_info: arch                  = qwen35
+print_info: vocab_only            = 0
+print_info: no_alloc              = 0
+print_info: n_ctx_train           = 262144
+print_info: n_embd                = 2560
+print_info: n_embd_inp            = 2560
+print_info: n_layer               = 32
+print_info: n_head                = 16
+print_info: n_head_kv             = 4
+print_info: n_rot                 = 64
+print_info: n_swa                 = 0
+print_info: is_swa_any            = 0
+print_info: n_embd_head_k         = 256
+print_info: n_embd_head_v         = 256
+print_info: n_gqa                 = 4
+print_info: n_embd_k_gqa          = 1024
+print_info: n_embd_v_gqa          = 1024
+print_info: f_norm_eps            = 0.0e+00
+print_info: f_norm_rms_eps        = 1.0e-06
+print_info: f_clamp_kqv           = 0.0e+00
+print_info: f_max_alibi_bias      = 0.0e+00
+print_info: f_logit_scale         = 0.0e+00
+print_info: f_attn_scale          = 0.0e+00
+print_info: n_ff                  = 9216
+print_info: n_expert              = 0
+print_info: n_expert_used         = 0
+print_info: n_expert_groups       = 0
+print_info: n_group_used          = 0
+print_info: causal attn           = 1
+print_info: pooling type          = -1
+print_info: rope type             = 40
+print_info: rope scaling          = linear
+print_info: freq_base_train       = 10000000.0
+print_info: freq_scale_train      = 1
+print_info: n_ctx_orig_yarn       = 262144
+print_info: rope_yarn_log_mul     = 0.0000
+print_info: rope_finetuned        = unknown
+print_info: mrope sections        = [11, 11, 10, 0]
+print_info: ssm_d_conv            = 4
+print_info: ssm_d_inner           = 4096
+print_info: ssm_d_state           = 128
+print_info: ssm_dt_rank           = 32
+print_info: ssm_n_group           = 16
+print_info: ssm_dt_b_c_rms        = 0
+print_info: model type            = 4B
+print_info: model params          = 4.84 B
+print_info: general.name          = Elt Lm Qwen35 Side Stem v2 Bridge Merged
+print_info: vocab type            = BPE
+print_info: n_vocab               = 248320
+print_info: n_merges              = 247587
+print_info: BOS token             = 11 ','
+print_info: EOS token             = 248046 '<|im_end|>'
+print_info: EOT token             = 248046 '<|im_end|>'
+print_info: PAD token             = 248044 '<|endoftext|>'
+print_info: LF token              = 198 'Ċ'
+print_info: FIM PRE token         = 248060 '<|fim_prefix|>'
+print_info: FIM SUF token         = 248062 '<|fim_suffix|>'
+print_info: FIM MID token         = 248061 '<|fim_middle|>'
+print_info: FIM PAD token         = 248063 '<|fim_pad|>'
+print_info: FIM REP token         = 248064 '<|repo_name|>'
+print_info: FIM SEP token         = 248065 '<|file_sep|>'
+print_info: EOG token             = 248044 '<|endoftext|>'
+print_info: EOG token             = 248046 '<|im_end|>'
+print_info: EOG token             = 248063 '<|fim_pad|>'
+print_info: EOG token             = 248064 '<|repo_name|>'
+print_info: EOG token             = 248065 '<|file_sep|>'
+print_info: max token length      = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true, direct_io = false)
+load_tensors: offloading output layer to GPU
+load_tensors: offloading 5 repeating layers to GPU
+load_tensors: offloaded 6/33 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =  3371.46 MiB
+load_tensors:        CUDA0 model buffer size =  1024.97 MiB
+.......................................................................
+common_init_result: added <|endoftext|> logit bias = -inf
+common_init_result: added <|im_end|> logit bias = -inf
+common_init_result: added <|fim_pad|> logit bias = -inf
+common_init_result: added <|repo_name|> logit bias = -inf
+common_init_result: added <|file_sep|> logit bias = -inf
+llama_context: constructing llama_context
+llama_context: n_ctx is not divisible by n_seq_max - rounding down to 32768
+llama_context: n_seq_max     = 128
+llama_context: n_ctx         = 32768
+llama_context: n_ctx_seq     = 256
+llama_context: n_batch       = 2048
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = auto
+llama_context: kv_unified    = false
+llama_context: freq_base     = 10000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (256) < n_ctx_train (262144) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =   121.25 MiB
+llama_kv_cache:        CPU KV buffer size =   768.00 MiB
+llama_kv_cache:      CUDA0 KV buffer size =   256.00 MiB
+llama_kv_cache: size = 1024.00 MiB (   256 cells,   8 layers, 128/128 seqs), K (f16):  512.00 MiB, V (f16):  512.00 MiB
+llama_kv_cache: attn_rot_k = 0, n_embd_head_k_all = 256
+llama_kv_cache: attn_rot_v = 0, n_embd_head_k_all = 256
+llama_memory_recurrent:        CPU RS buffer size =  5628.00 MiB
+llama_memory_recurrent:      CUDA0 RS buffer size =   804.00 MiB
+llama_memory_recurrent: size = 6432.00 MiB (   128 cells,  32 layers, 128 seqs), R (f32):  288.00 MiB, S (f32): 6144.00 MiB
+sched_reserve: reserving ...
+sched_reserve: Flash Attention was auto, set to enabled
+sched_reserve: resolving fused Gated Delta Net support:
+sched_reserve: layer 0 is assigned to device CPU but the fused Gated Delta Net tensor is assigned to device CUDA0 (usually due to missing support)
+sched_reserve: fused Gated Delta Net (autoregressive) not supported, set to disabled
+sched_reserve: layer 0 is assigned to device CPU but the fused Gated Delta Net tensor is assigned to device CUDA0 (usually due to missing support)
+sched_reserve: fused Gated Delta Net (chunked) not supported, set to disabled
+sched_reserve:      CUDA0 compute buffer size =  1687.26 MiB
+sched_reserve:  CUDA_Host compute buffer size =   282.77 MiB
+sched_reserve: graph nodes  = 3817 (with bs=512), 2305 (with bs=1)
+sched_reserve: graph splits = 470
+sched_reserve: reserve took 117.83 ms, sched copies = 1
+
+system_info: n_threads = 6 (n_threads_batch = 6) / 12 | CUDA : ARCHS = 860 | USE_GRAPHS = 1 | PEER_MAX_BATCH_SIZE = 128 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 |
+kl_divergence: computing over 1 chunks, n_ctx=16, batch_size=2048, n_seq=128
+kl_divergence: 24.39 seconds per pass - ETA 0.00 minutes
+
+chunk             PPL               ln(PPL(Q)/PPL(base))          KL Divergence              Δp RMS            Same top p
+   1    21648.7900 ±    0.0000       0.64896 ±    0.00000       1.88190 ±    0.00000     0.524 ±  0.000 %    28.571 ± 18.443 %
+
+
+llama_perf_context_print:        load time =   28726.75 ms
+llama_perf_context_print: prompt eval time =   24014.72 ms /    16 tokens ( 1500.92 ms per token,     0.67 tokens per second)
+llama_perf_context_print:        eval time =       0.00 ms /     1 runs   (    0.00 ms per token,      inf tokens per second)
+llama_perf_context_print:       total time =   28734.36 ms /    17 tokens
+llama_perf_context_print:    graphs reused =          0
+llama_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+llama_memory_breakdown_print: |   - CUDA0 (RTX 3060)   | 12287 = 7450 + ( 3772 =  1024 +    1060 +    1687) +        1065 |
+llama_memory_breakdown_print: |   - Host               |                 10050 =  3371 +    6396 +     282                |

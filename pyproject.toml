@@ -32,6 +32,8 @@ dev = [
 eval = [
     "datasets>=2.20.0",
     "jinja2>=3.1.0",
+    "matplotlib>=3.9.0",
+    "scipy>=1.14.0",
 ]
 logging = [
     "wandb>=0.17.0",
@@ -82,6 +84,7 @@ elt-infer = "elt_lm.infer:cli"
 elt-tokenize = "elt_lm.tokenize_data:cli"
 elt-anytime = "elt_lm.eval.anytime_sweep:cli"
 elt-compare-benchmarks = "elt_lm.eval.benchmark_comparison:cli"
+elt-gguf-quant-report = "elt_lm.eval.gguf_quant_report:cli"
 elt-release-readiness = "elt_lm.release_readiness:cli"
 
 [tool.hatch.build.targets.wheel]
