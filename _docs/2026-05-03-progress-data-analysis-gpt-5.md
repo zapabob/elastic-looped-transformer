@@ -2,7 +2,7 @@
 
 ## Goal
 
-Capture the 2026-05-03 ELT progress snapshot, analyze the newly generated synthetic-v2-agent dataset, and add a project-local visual summary suitable for GPT Image handoff.
+Capture the 2026-05-03 ELT progress snapshot, analyze the newly generated synthetic-v2-agent dataset, and add project-local visual summaries including a GPT Image variant.
 
 ## Files touched
 
@@ -15,14 +15,15 @@ Capture the 2026-05-03 ELT progress snapshot, analyze the newly generated synthe
 
 ## Current progress snapshot
 
-- Generated at: `2026-05-03T09:52:30.162304+09:00`
+- Generated at: `2026-05-03T10:05:44.725681+09:00`
 - Pipeline state: `running` at `04_side_lora_synthetic_v2_bridge_grpo` (stage index 5 of 6).
-- Active bridge GRPO metrics: `H:\elt_data\runs\grpo_side_lora_code_synthetic_v2_bridge\metrics.jsonl`; latest parsed GRPO step `95`.
-- Latest GRPO format/correct rates: `1.000` / `0.000`; latest loss `0.000541`; latest KL `0.000687`.
-- GRPO nonzero-reward steps observed in current metrics: `25` of `96` parsed GRPO steps.
-- Checkpoint age at analysis time: `35.7` sec; metrics age `35.7` sec.
-- GPU snapshot from progress reporter: `12025/12288 MB`, util `89%`, temp `58 C`.
-- Disk snapshot from progress reporter: C `7.72` GB free; H `88.34` GB free.
+- Active bridge GRPO run: `H:\elt_data\runs\grpo_side_lora_math_synthetic_v2_bridge`; latest parsed GRPO step `7`.
+- Active latest format/correct rates: `1.000` / `0.500`; latest loss `-0.000716`; latest KL `0.000275`.
+- Active correct-rate max/mean so far: `1.000` / `0.250` across `8` parsed GRPO steps.
+- Completed code bridge GRPO: run_end `True`, final step `96`, final checkpoint age `830.2` sec at analysis time.
+- Active checkpoint age at analysis time: `197.7` sec; active metrics age `197.7` sec.
+- GPU snapshot from progress reporter: `12009/12288 MB`, util `100%`, temp `52 C`.
+- Disk snapshot from progress reporter: C `7.68` GB free; H `87.62` GB free.
 
 ## Synthetic-v2-agent dataset analysis
 
@@ -41,17 +42,13 @@ Capture the 2026-05-03 ELT progress snapshot, analyze the newly generated synthe
 
 ![GPT Image ELT progress infographic](assets/2026-05-03-progress-data-analysis/gptimage_elt_progress_infographic.png)
 
-The exact machine-readable snapshot is stored in `latest_progress_analysis.json`.
-`elt_progress_data_analysis.png` is the deterministic local chart with exact
-data labels. `gptimage_elt_progress_infographic.png` is the GPT Image variant
-generated from `gptimage_prompt.md`, with the verifier value locally corrected
-to `1.000`.
+The exact machine-readable snapshot is stored in `latest_progress_analysis.json`. `elt_progress_data_analysis.png` is the deterministic local chart with exact data labels. `gptimage_elt_progress_infographic.png` is the GPT Image variant generated from `gptimage_prompt.md`.
 
 ## Key decisions
 
 - Kept the analysis artifacts under `_docs/assets/` so runtime files under `H:/elt_data` remain local-only.
-- Treated progress reporter output as a snapshot, not a completion claim; the current bridge GRPO stage was still marked running.
-- Used deterministic local plotting for exact numbers and saved a GPT Image prompt separately for presentation-grade rendering.
+- Treated progress reporter output as a snapshot, not a completion claim; the bridge stage was still marked running while active metrics had moved to math GRPO.
+- Used deterministic local plotting for exact numbers and a separate GPT Image asset for presentation-grade rendering.
 
 ## Tests
 
@@ -75,6 +72,6 @@ Result: full suite passed.
 
 ## Next session notes
 
-- If bridge GRPO remains at zero correct rate after more nonzero-reward windows, inspect prompt/task mix before widening training.
+- Active bridge GRPO has moved from code to math; continue watching whether math maintains nonzero reward windows and correct-rate lift.
 - C: free space was low in the snapshot; keep large checkpoint/cache writes on H:.
 - Agent data is ready for a short low-LR lane LoRA SFT probe with replay and early stopping before bridge GRPO.

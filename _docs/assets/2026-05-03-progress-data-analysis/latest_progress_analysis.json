@@ -1,5 +1,5 @@
 {
-  "generated_at_local": "2026-05-03T09:52:30.162304+09:00",
+  "generated_at_local": "2026-05-03T10:05:44.725681+09:00",
   "dataset": {
     "total_records": 1024,
     "valid_json_records": 1024,
@@ -101,7 +101,7 @@
     "rejected": {}
   },
   "pipeline": {
-    "generated_at": "2026-05-03T09:48:03.2762100+09:00",
+    "generated_at": "2026-05-03T10:03:03.4279456+09:00",
     "status": {
       "state": "running",
       "current_stage": "04_side_lora_synthetic_v2_bridge_grpo",
@@ -113,26 +113,26 @@
       "last_error": "",
       "pid": 24364
     },
-    "metrics_path": "H:\\elt_data\\runs\\grpo_side_lora_code_synthetic_v2_bridge\\metrics.jsonl",
-    "metrics_age_sec": 50.7,
+    "metrics_path": "H:\\elt_data\\runs\\grpo_side_lora_math_synthetic_v2_bridge\\metrics.jsonl",
+    "metrics_age_sec": 36,
     "latest_train_step": null,
     "latest_event": {
-      "ts": 1777769231.2816331,
+      "ts": 1777770147.0381515,
       "event": "checkpoint",
       "kind": "rolling",
-      "step": 92,
-      "slot": 2
+      "step": 7,
+      "slot": 0
     },
     "checkpoint": {
-      "path": "H:\\elt_data\\runs\\grpo_side_lora_code_synthetic_v2_bridge\\last.pt",
+      "path": "H:\\elt_data\\runs\\grpo_side_lora_math_synthetic_v2_bridge\\last.pt",
       "bytes": 195400181,
-      "age_sec": 51.7,
-      "last_write_time": "2026-05-03T09:47:11.2608278+09:00"
+      "age_sec": 36,
+      "last_write_time": "2026-05-03T10:02:27.0330788+09:00"
     },
     "eta": null,
     "distill": {
       "path": "H:\\elt_data\\gguf_distill\\qwen35_hauhaucs_all_remaining_queue\\status.json",
-      "age_sec": 462794.9,
+      "age_sec": 463695.1,
       "state": "complete",
       "stage": "complete",
       "processed_tasks": null,
@@ -143,59 +143,77 @@
       "last_error": ""
     },
     "gpu": {
-      "memory_used_mb": 12025,
+      "memory_used_mb": 12009,
       "memory_total_mb": 12288,
-      "utilization_pct": 89,
-      "temperature_c": 58,
-      "power_w": 90.91
+      "utilization_pct": 100,
+      "temperature_c": 52,
+      "power_w": 65.81
     },
     "disk": [
       {
         "name": "C",
-        "free_gb": 7.72,
-        "used_gb": 921.94
+        "free_gb": 7.68,
+        "used_gb": 921.98
       },
       {
         "name": "H",
-        "free_gb": 88.34,
-        "used_gb": 865.51
+        "free_gb": 87.62,
+        "used_gb": 866.24
       }
     ]
   },
-  "current_grpo": {
-    "run_dir": "H:\\elt_data\\runs\\grpo_side_lora_code_synthetic_v2_bridge",
-    "metrics_path": "H:\\elt_data\\runs\\grpo_side_lora_code_synthetic_v2_bridge\\metrics.jsonl",
-    "metrics_age_sec_now": 35.660950899124146,
-    "last_checkpoint_age_sec_now": 35.665059328079224,
-    "grpo_step_count": 96,
-    "latest_step": 95,
+  "active_bridge_grpo": {
+    "path": "H:\\elt_data\\runs\\grpo_side_lora_math_synthetic_v2_bridge",
+    "exists": true,
+    "event_count": 11,
+    "grpo_step_count": 8,
     "latest_event": {
-      "ts": 1777769514.0540404,
+      "ts": 1777770146.5336866,
       "event": "grpo_step",
-      "step": 95,
-      "lr": 5.014336422717685e-07,
-      "loss": 0.0005410811863839626,
-      "policy_loss": 0.0005204677581787109,
-      "kl": 0.0006871136138215661,
-      "clip_frac": 0.0031250000465661287,
-      "adv_abs_mean": 0.9999200105667114,
-      "reward_mean": -0.09950000047683716,
-      "reward_std": 0.012500002980232239,
-      "verifier_reward_mean": -0.09950000047683716,
+      "step": 7,
+      "lr": 5e-06,
+      "loss": -0.0007160267559811473,
+      "policy_loss": -0.0007242858409881592,
+      "kl": 0.00027530279476195574,
+      "clip_frac": 0.0,
+      "adv_abs_mean": 0.9999979734420776,
+      "reward_mean": 0.5,
+      "reward_std": 0.5,
+      "verifier_reward_mean": 0.5,
       "reward_model_mean": 0.0,
-      "correct_rate": 0.0,
+      "correct_rate": 0.5,
       "format_rate": 1.0,
-      "prompt_task": "python_exec"
+      "prompt_task": "exact_math"
     },
-    "checkpoint_events": 37,
-    "nonzero_reward_steps": 25,
-    "mean_format_rate": 1.0,
+    "latest_step": 7,
+    "run_end": false,
+    "checkpoint_count": 1,
+    "last_checkpoint_age_sec_now": 197.68103671073914,
+    "metrics_age_sec_now": 197.67596411705017,
+    "mean_correct_rate": 0.25,
+    "max_correct_rate": 1.0,
+    "mean_format_rate": 0.9375
+  },
+  "code_bridge_grpo": {
+    "path": "H:\\elt_data\\runs\\grpo_side_lora_code_synthetic_v2_bridge",
+    "exists": true,
+    "event_count": 136,
+    "grpo_step_count": 96,
+    "latest_event": {
+      "ts": 1777769514.5023856,
+      "event": "checkpoint",
+      "kind": "final",
+      "step": 96
+    },
+    "latest_step": 96,
+    "run_end": true,
+    "checkpoint_count": 37,
+    "last_checkpoint_age_sec_now": 830.2172427177429,
+    "metrics_age_sec_now": 830.2131342887878,
     "mean_correct_rate": 0.03125,
     "max_correct_rate": 0.5,
-    "mean_loss": 3.5466328374885356e-06,
-    "last_loss": 0.0005410811863839626,
-    "mean_kl": 0.0008701087526787887,
-    "last_kl": 0.0006871136138215661
+    "mean_format_rate": 1.0,
+    "final_checkpoint_step": 96
   },
   "ilsd_runs": {
     "code_l2": {
@@ -211,8 +229,7 @@
       "last_val_step": null,
       "last_val_loss": null,
       "checkpoint_count": 3,
-      "run_end": true,
-      "metrics_mtime": "2026-05-03T03:24:12.578762"
+      "run_end": true
     },
     "math_l2": {
       "path": "H:\\elt_data\\runs\\qwen35_4b_side_lora_math_aha_ilsd_l2",
@@ -227,8 +244,7 @@
       "last_val_step": null,
       "last_val_loss": null,
       "checkpoint_count": 3,
-      "run_end": true,
-      "metrics_mtime": "2026-05-03T03:31:39.168187"
+      "run_end": true
     },
     "stem_l2": {
       "path": "H:\\elt_data\\runs\\qwen35_4b_side_lora_stem_aha_ilsd_l2",
@@ -243,8 +259,7 @@
       "last_val_step": null,
       "last_val_loss": null,
       "checkpoint_count": 3,
-      "run_end": true,
-      "metrics_mtime": "2026-05-03T03:38:44.102790"
+      "run_end": true
     },
     "tool_l2": {
       "path": "H:\\elt_data\\runs\\qwen35_4b_side_lora_tool_aha_ilsd_l2",
@@ -259,8 +274,7 @@
       "last_val_step": null,
       "last_val_loss": null,
       "checkpoint_count": 3,
-      "run_end": true,
-      "metrics_mtime": "2026-05-03T03:46:11.998091"
+      "run_end": true
     },
     "code_l3": {
       "path": "H:\\elt_data\\runs\\qwen35_4b_side_lora_code_aha_ilsd_l3",
@@ -275,8 +289,7 @@
       "last_val_step": null,
       "last_val_loss": null,
       "checkpoint_count": 3,
-      "run_end": true,
-      "metrics_mtime": "2026-05-03T04:01:16.749341"
+      "run_end": true
     },
     "math_l3": {
       "path": "H:\\elt_data\\runs\\qwen35_4b_side_lora_math_aha_ilsd_l3",
@@ -291,8 +304,7 @@
       "last_val_step": null,
       "last_val_loss": null,
       "checkpoint_count": 2,
-      "run_end": true,
-      "metrics_mtime": "2026-05-03T04:12:24.270449"
+      "run_end": true
     },
     "stem_l3": {
       "path": "H:\\elt_data\\runs\\qwen35_4b_side_lora_stem_aha_ilsd_l3",
@@ -307,8 +319,7 @@
       "last_val_step": 80,
       "last_val_loss": 9.331590175628662,
       "checkpoint_count": 2,
-      "run_end": true,
-      "metrics_mtime": "2026-05-03T04:22:15.884987"
+      "run_end": true
     },
     "tool_l3": {
       "path": "H:\\elt_data\\runs\\qwen35_4b_side_lora_tool_aha_ilsd_l3",
@@ -323,8 +334,7 @@
       "last_val_step": 80,
       "last_val_loss": 11.349592208862305,
       "checkpoint_count": 3,
-      "run_end": true,
-      "metrics_mtime": "2026-05-03T04:40:08.569539"
+      "run_end": true
     }
   },
   "derived": {
