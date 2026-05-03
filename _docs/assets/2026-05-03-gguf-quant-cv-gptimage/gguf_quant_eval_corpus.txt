@@ -1,0 +1,65 @@
+User: Answer the following STEM multiple-choice question.
+Return your result using <think>...</think><answer>...</answer>.
+Put only the final option letter inside <answer>.
+
+Question:
+A heat pump report says the compressor work input stayed fixed while the useful heat delivered rose after insulation was added. Which interpretation best separates energy conservation from coefficient-of-performance improvement? Synthetic v2 id 0.
+
+Choices:
+A. Energy is conserved; insulation reduces losses, so more delivered heat per unit work improves COP.
+B. Energy conservation is violated because delivered heat became larger than work input.
+C. The compressor must have secretly consumed less work because COP cannot change otherwise.
+D. The reservoir temperature is irrelevant, so insulation cannot affect delivered heat.
+
+Assistant: <think>Compare the tempting one-factor explanation against the multi-step mechanism. The correct option preserves the governing law, then accounts for the second-stage constraint that changes the observed outcome.</think><answer>A</answer>
+
+User: Solve the following math problem.
+Return your result using <think>...</think><answer>...</answer>.
+Put only the final exact answer inside <answer>.
+
+Problem:
+A monitoring event has prior incident probability 1/10. A detector fires with probability 3/4 during an incident and 1/5 otherwise. After a detector fire, a reviewer catches the true incident with probability 2/3 and mistakenly escalates a non-incident with probability 1/6. Compute the exact probability that the case is escalated. Synthetic v2 id 0.
+
+Assistant: <think>First update the incident probability with Bayes: P(I|fire)=(1/10*3/4)/((1/10*3/4)+(1-1/10)*1/5). Then condition the escalation probability on incident versus non-incident after the fire. The weighted probability is 5/17*2/3 + (1-5/17)*1/6 = 16/51.</think><answer>16/51</answer>
+
+User: Solve the following Python task.
+Return executable Python code only inside a fenced ```python block.
+Use Python 3.12 standard library only unless the prompt explicitly says otherwise.
+
+Task:
+Implement summarize_downtime(events, grace_minutes). Events are dicts with integer service, start, and end fields. Validate impossible windows, group by service, sort, merge intervals whose gap is at most grace_minutes, and return sorted tuples (service, start, end). Synthetic v2 id 0.
+
+Assistant: ```python
+def summarize_downtime(events: list[dict[str, int]], grace_minutes: int) -> list[tuple[int, int, int]]:
+    if grace_minutes < 0:
+        raise ValueError('grace_minutes must be nonnegative')
+    by_service: dict[int, list[tuple[int, int]]] = {}
+    for event in events:
+        service = event['service']
+        start = event['start']
+        end = event['end']
+        if end < start:
+            raise ValueError('event end before start')
+        by_service.setdefault(service, []).append((start, end))
+    merged: list[tuple[int, int, int]] = []
+    for service in sorted(by_service):
+        intervals = sorted(by_service[service])
+        cur_start, cur_end = intervals[0]
+        for start, end in intervals[1:]:
+            if start - cur_end <= grace_minutes:
+                cur_end = max(cur_end, end)
+            else:
+                merged.append((service, cur_start, cur_end))
+                cur_start, cur_end = start, end
+        merged.append((service, cur_start, cur_end))
+    return merged
+```
+
+User: Select the best tool call for the following user request.
+Return strict JSON with keys: tool_name, arguments.
+Do not add prose or markdown fences.
+
+User request:
+Search the project for the source of GRPO reward collapse, but do not modify files. Synthetic v2 id 0.
+
+Assistant: {"arguments": {"limit": 8, "query": "grpo_step reward_std adv_abs_mean", "read_only": true, "request_id": "synthetic-v2-0", "root": "H:/elt_data/runs"}, "tool_name": "mcp.files.search"}

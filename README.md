@@ -304,11 +304,67 @@ llama.cpp Q8_0 GGUF, and Turboquant TQ4_1S GGUF are ready for handoff. The
 side-LoRA bridge remains the `L_min=L_max=1` path; native looped ELT runtime
 support is tracked separately from this release artifact.
 
+### Quantization and serving lanes
+
+`TQ4_1S` currently serves as a compact GGUF weight-compression artifact. We do
+not claim Google TurboQuant KV-cache serving performance from this result.
+Instead, ELT quantization work is split into separate lanes so each claim has
+the right evidence:
+
+| lane | current scope | next proof point |
+|---|---|---|
+| Weight GGUF compression | BF16, Q8_0, Q6_K, Q5_K_M, Q4_K_M, IQ4_NL, IQ4_XS, TQ4_1S | file size, PPL/KL, top-k stability, ELT exact/step accuracy |
+| Calibration and tensor policy | ELT corpus imatrix plus protected output/token embedding/attn_v/ffn_down tensors | same-bit-budget recovery versus all-Q4 baselines |
+| KV cache compression | llama.cpp `f16`, `q8_0`, `q4_0`, `q5_0`, `iq4_nl` K/V sweeps | ctx length, KV MiB, VRAM peak, tok/s, K/V asymmetry |
+| TurboQuant-style KV | upstream TBQ3/TBQ4 tracking, not this local TQ4_1S weight artifact | RTX 3060 CUDA serving measurements after CUDA-capable support exists |
+| DFlash speculative decoding | separate draft/verify serving lane | target equivalence, acceptance length/rate, tok/s, loop-depth stability |
+
+The first publishable claim is therefore not "TQ4_1S is smaller"; it is: ELT
+separates weight format, calibration data, tensor protection, KV-cache type,
+and speculative decoding, then measures where recurrent loop quality breaks and
+where compression remains recoverable. As of 2026-05-03, llama.cpp documents
+stock K/V cache types (`f32`, `f16`, `bf16`, `q8_0`, `q4_0`, `q4_1`,
+`iq4_nl`, `q5_0`, `q5_1`), while the TurboQuant KV PR is still an open
+CPU-only TBQ3/TBQ4 path and DFlash is a draft speculative-decoding PR. That
+keeps the current README claim honest: compact GGUF weight handoff now,
+TurboQuant KV and DFlash serving evidence later.
+
 For `L_max > 1` exports, `elt_lm.release_readiness` now reads `elt_config` and
 keeps the release blocked until the caller declares both a loop-aware llama.cpp
 runtime (`--loop-runtime-supported`) and a Turboquant converter that preserves
 `elt.*` loop metadata (`--turboquant-loop-metadata-supported`). Those looped
 artifacts use the Turboquant model family `ELT/Qwen3.5-looped`.
+
+## GGUF quantization CV report
+
+The 2026-05-03 GGUF release check compares the three handoff artifacts under the
+same local llama.cpp CUDA runtime on the RTX 3060:
+
+![GGUF BF16 Q8_0 TQ4_1S CV summary](_docs/assets/2026-05-03-gguf-quant-cv-gptimage/gptimage_gguf_quant_cv_infographic.png)
+
+| format | size | prompt eval tok/s | decode tok/s | perplexity | logits KL vs BF16 | KV / recurrent state |
+|---|---:|---:|---:|---:|---:|---:|
+| BF16 | 9.03 GiB | 217.15 ± 13.59 | 27.83 ± 0.07 | 11313.67 | baseline | 1024 / 6432 MiB |
+| Q8_0 | 4.80 GiB | 248.77 ± 16.75 | 40.40 ± 0.15 | 13677.23 | 1.6404 | 1024 / 6432 MiB |
+| TQ4_1S | 4.16 GiB | 0.79 ± 0.02 | 0.69 ± 0.03 | 21648.79 | 1.8819 | 1024 / 6432 MiB |
+
+Runtime statistics use `llama-bench` with paired `f16/f16` KV cache blocks,
+`n=3` repetitions, mean ± SEM, and SciPy repeated-measures tests. The omnibus
+Friedman p-value is `0.049787` for both prompt-eval and decode throughput; the
+pairwise Wilcoxon p-values are `0.25` because the sample is intentionally short.
+Perplexity and logits KL are one-chunk release checks over verifier-backed
+synthetic-v2 hard held-out text, not broad lm-eval leaderboard claims. A
+`q8_0/q8_0` KV-cache bench was attempted first, but the BF16 GGUF failed context
+creation with that cache setting on this local runtime, so the paired comparison
+uses the common `f16/f16` cache path. This section evaluates local GGUF weight
+artifacts only; it is not a TurboQuant KV-cache or DFlash serving result.
+
+Artifacts:
+
+- `_docs/assets/2026-05-03-gguf-quant-cv-gptimage/gguf_quant_cv_report.json`
+- `_docs/assets/2026-05-03-gguf-quant-cv-gptimage/gguf_quant_cv_summary.csv`
+- `_docs/assets/2026-05-03-gguf-quant-cv-gptimage/gguf_quant_cv_pairwise.csv`
+- `_docs/assets/2026-05-03-gguf-quant-cv-gptimage/gguf_quant_cv_omnibus.csv`
 
 ## Cross-validated benchmark comparison
 
