@@ -1,0 +1,222 @@
+{
+  "generated_at_unix": 1777776469.159759,
+  "run_root": "H:\\elt_data\\runs",
+  "policy": {
+    "thresholds": {
+      "min_grpo_steps": 24,
+      "strong_mean_correct_rate": 0.75,
+      "promising_mean_correct_rate": 0.25,
+      "min_mean_format_rate": 0.95,
+      "min_adv_signal_steps": 4,
+      "nonzero_eps": 1e-09
+    },
+    "actions": {
+      "ready_for_export_eval": "export and run bounded held-out eval; keep the adapter as the current bridge winner unless external eval regresses",
+      "promising_but_unstable": "refresh prompts and run a short low-LR GRPO continuation only after held-out verifier replay",
+      "unstable_sparse_success": "run replay SFT and prompt repair before more GRPO; sparse successes mean the verifier can score the task but the policy has not stabilized",
+      "blocked_no_reward_signal": "stop GRPO continuation; inspect verifier, answer schema, and failure-contrast SFT until nonzero rewards appear",
+      "format_repair": "repair formatting examples before reward optimization",
+      "incomplete": "finish or repair the lane run before making training decisions",
+      "missing": "create or restore the lane run before analysis"
+    }
+  },
+  "summaries": {
+    "code": {
+      "lane": "code",
+      "run_dir": "H:\\elt_data\\runs\\grpo_side_lora_code_synthetic_v2_bridge",
+      "metrics_path": "H:\\elt_data\\runs\\grpo_side_lora_code_synthetic_v2_bridge\\metrics.jsonl",
+      "exists": true,
+      "run_end": true,
+      "event_count": 136,
+      "grpo_step_count": 96,
+      "latest_grpo_step": 95,
+      "final_checkpoint_step": 96,
+      "final_correct_rate": 0.0,
+      "final_format_rate": 1.0,
+      "mean_correct_rate": 0.03125,
+      "max_correct_rate": 0.5,
+      "mean_format_rate": 1.0,
+      "mean_reward": 0.013984375090027848,
+      "mean_reward_std": 0.047609374936049186,
+      "max_reward_std": 0.7064999938011169,
+      "mean_adv_abs": 0.26041105948388577,
+      "max_adv_abs": 0.9999985694885254,
+      "mean_kl": 0.0008701087526787887,
+      "max_kl": 0.005358600988984108,
+      "mean_clip_frac": 0.0010269957989900529,
+      "max_clip_frac": 0.006329114083200693,
+      "nonzero_reward_steps": 25,
+      "nonzero_correct_steps": 6,
+      "adv_signal_steps": 25,
+      "reward_std_signal_steps": 25,
+      "checkpoint_count": 37,
+      "latest_event": "run_end",
+      "prompt_tasks": [
+        "python_exec"
+      ]
+    },
+    "math": {
+      "lane": "math",
+      "run_dir": "H:\\elt_data\\runs\\grpo_side_lora_math_synthetic_v2_bridge",
+      "metrics_path": "H:\\elt_data\\runs\\grpo_side_lora_math_synthetic_v2_bridge\\metrics.jsonl",
+      "exists": true,
+      "run_end": true,
+      "event_count": 110,
+      "grpo_step_count": 96,
+      "latest_grpo_step": 95,
+      "final_checkpoint_step": 96,
+      "final_correct_rate": 0.0,
+      "final_format_rate": 1.0,
+      "mean_correct_rate": 0.22916666666666666,
+      "max_correct_rate": 1.0,
+      "mean_format_rate": 0.96875,
+      "mean_reward": 0.22916666666666666,
+      "mean_reward_std": 0.125,
+      "max_reward_std": 0.5,
+      "mean_adv_abs": 0.2499994933605194,
+      "max_adv_abs": 0.9999979734420776,
+      "mean_kl": 0.0006256897913014351,
+      "max_kl": 0.005251293070614338,
+      "mean_clip_frac": 0.001308164995862171,
+      "max_clip_frac": 0.01785714365541935,
+      "nonzero_reward_steps": 34,
+      "nonzero_correct_steps": 34,
+      "adv_signal_steps": 24,
+      "reward_std_signal_steps": 24,
+      "checkpoint_count": 11,
+      "latest_event": "run_end",
+      "prompt_tasks": [
+        "exact_math"
+      ]
+    },
+    "stem": {
+      "lane": "stem",
+      "run_dir": "H:\\elt_data\\runs\\grpo_side_lora_stem_synthetic_v2_bridge",
+      "metrics_path": "H:\\elt_data\\runs\\grpo_side_lora_stem_synthetic_v2_bridge\\metrics.jsonl",
+      "exists": true,
+      "run_end": true,
+      "event_count": 107,
+      "grpo_step_count": 96,
+      "latest_grpo_step": 95,
+      "final_checkpoint_step": 96,
+      "final_correct_rate": 1.0,
+      "final_format_rate": 1.0,
+      "mean_correct_rate": 0.8958333333333334,
+      "max_correct_rate": 1.0,
+      "mean_format_rate": 0.9479166666666666,
+      "mean_reward": 0.8958333333333334,
+      "mean_reward_std": 0.10416666666666667,
+      "max_reward_std": 0.5,
+      "mean_adv_abs": 0.20833291113376617,
+      "max_adv_abs": 0.9999979734420776,
+      "mean_kl": 0.005989139057722544,
+      "max_kl": 0.16788829863071442,
+      "mean_clip_frac": 0.0027337148397540054,
+      "max_clip_frac": 0.0416666679084301,
+      "nonzero_reward_steps": 96,
+      "nonzero_correct_steps": 96,
+      "adv_signal_steps": 20,
+      "reward_std_signal_steps": 20,
+      "checkpoint_count": 8,
+      "latest_event": "run_end",
+      "prompt_tasks": [
+        "mcq_reasoning"
+      ]
+    },
+    "tool": {
+      "lane": "tool",
+      "run_dir": "H:\\elt_data\\runs\\grpo_side_lora_tool_synthetic_v2_bridge",
+      "metrics_path": "H:\\elt_data\\runs\\grpo_side_lora_tool_synthetic_v2_bridge\\metrics.jsonl",
+      "exists": true,
+      "run_end": true,
+      "event_count": 107,
+      "grpo_step_count": 96,
+      "latest_grpo_step": 95,
+      "final_checkpoint_step": 96,
+      "final_correct_rate": 0.0,
+      "final_format_rate": 1.0,
+      "mean_correct_rate": 0.0,
+      "max_correct_rate": 0.0,
+      "mean_format_rate": 1.0,
+      "mean_reward": 0.0,
+      "mean_reward_std": 0.0,
+      "max_reward_std": 0.0,
+      "mean_adv_abs": 0.0,
+      "max_adv_abs": 0.0,
+      "mean_kl": 0.0005099738665042727,
+      "max_kl": 0.001355922082439065,
+      "mean_clip_frac": 0.0005905665505755072,
+      "max_clip_frac": 0.009433962404727936,
+      "nonzero_reward_steps": 0,
+      "nonzero_correct_steps": 0,
+      "adv_signal_steps": 0,
+      "reward_std_signal_steps": 0,
+      "checkpoint_count": 8,
+      "latest_event": "run_end",
+      "prompt_tasks": [
+        "json_match"
+      ]
+    }
+  },
+  "decisions": {
+    "code": {
+      "lane": "code",
+      "classification": "unstable_sparse_success",
+      "priority": 1,
+      "action": "run replay SFT and prompt repair before more GRPO; sparse successes mean the verifier can score the task but the policy has not stabilized",
+      "rationale": [
+        "mean correct rate 0.031 < 0.250",
+        "max correct rate 0.500"
+      ],
+      "warnings": []
+    },
+    "math": {
+      "lane": "math",
+      "classification": "unstable_sparse_success",
+      "priority": 1,
+      "action": "run replay SFT and prompt repair before more GRPO; sparse successes mean the verifier can score the task but the policy has not stabilized",
+      "rationale": [
+        "mean correct rate 0.229 < 0.250",
+        "max correct rate 1.000"
+      ],
+      "warnings": []
+    },
+    "stem": {
+      "lane": "stem",
+      "classification": "ready_for_export_eval",
+      "priority": 3,
+      "action": "export and run bounded held-out eval; keep the adapter as the current bridge winner unless external eval regresses",
+      "rationale": [
+        "mean correct rate 0.896 >= 0.750",
+        "final correct rate 1.000 >= 0.750"
+      ],
+      "warnings": [
+        "mean format rate 0.948 is below 0.950"
+      ]
+    },
+    "tool": {
+      "lane": "tool",
+      "classification": "blocked_no_reward_signal",
+      "priority": 0,
+      "action": "stop GRPO continuation; inspect verifier, answer schema, and failure-contrast SFT until nonzero rewards appear",
+      "rationale": [
+        "max correct rate is 0.000",
+        "reward never becomes nonzero"
+      ],
+      "warnings": [
+        "advantage signal steps 0 < 4"
+      ]
+    }
+  },
+  "classification_counts": {
+    "unstable_sparse_success": 2,
+    "ready_for_export_eval": 1,
+    "blocked_no_reward_signal": 1
+  },
+  "action_order": [
+    "tool",
+    "code",
+    "math",
+    "stem"
+  ]
+}

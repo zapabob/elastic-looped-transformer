@@ -1,0 +1,37 @@
+# Data-driven follow-up policy for the completed synthetic-v2 bridge GRPO sweep.
+#
+# Rationale:
+# - ELT/ILSD turns intermediate loop states into useful exits, so follow-up runs
+#   should protect lower-depth behavior instead of chasing only final-step wins.
+# - GRPO-style updates require within-group reward diversity; a lane with zero
+#   reward_std / zero advantage should go back to verifier, schema, or SFT data.
+# - LoRA keeps the Qwen3.5 side branch cheap to iterate, but weak lanes still
+#   need data repair before more RL compute.
+
+diagnostics:
+  thresholds:
+    min_grpo_steps: 24
+    strong_mean_correct_rate: 0.75
+    promising_mean_correct_rate: 0.25
+    min_mean_format_rate: 0.95
+    min_adv_signal_steps: 4
+    nonzero_eps: 1.0e-9
+  actions:
+    ready_for_export_eval: >-
+      export and run bounded held-out eval; keep the adapter as the current
+      bridge winner unless external eval regresses
+    promising_but_unstable: >-
+      refresh prompts and run a short low-LR GRPO continuation only after
+      held-out verifier replay
+    unstable_sparse_success: >-
+      run replay SFT and prompt repair before more GRPO; sparse successes mean
+      the verifier can score the task but the policy has not stabilized
+    blocked_no_reward_signal: >-
+      stop GRPO continuation; inspect verifier, answer schema, and
+      failure-contrast SFT until nonzero rewards appear
+    format_repair: >-
+      repair formatting examples before reward optimization
+    incomplete: >-
+      finish or repair the lane run before making training decisions
+    missing: >-
+      create or restore the lane run before analysis
