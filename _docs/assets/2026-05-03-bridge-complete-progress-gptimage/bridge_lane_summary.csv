@@ -1,0 +1,5 @@
+lane,run_end,final_checkpoint_step,grpo_steps,final_correct_rate,mean_correct_rate,max_correct_rate,mean_format_rate,nonzero_reward_steps
+code,True,96,96,0.0,0.03125,0.5,1.0,25
+math,True,96,96,0.0,0.22916666666666666,1.0,0.96875,34
+stem,True,96,96,1.0,0.8958333333333334,1.0,0.9479166666666666,96
+tool,True,96,96,0.0,0.0,0.0,1.0,0

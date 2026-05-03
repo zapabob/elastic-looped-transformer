@@ -1,0 +1,253 @@
+{
+  "generated_at_local": "2026-05-03T11:33:29.918462+09:00",
+  "pipeline": {
+    "generated_at": "2026-05-03T11:33:02.9108994+09:00",
+    "status": {
+      "state": "complete",
+      "current_stage": "complete",
+      "stage_index": 6,
+      "total_stages": 6,
+      "started_at": 1777775581.7779264,
+      "updated_at": 1777775581.784113,
+      "elapsed_sec": 0.006,
+      "last_error": "",
+      "pid": 23808
+    },
+    "metrics_path": "H:\\elt_data\\runs\\grpo_side_lora_tool_synthetic_v2_bridge\\metrics.jsonl",
+    "metrics_age_sec": 451,
+    "latest_train_step": null,
+    "latest_event": {
+      "ts": 1777775131.035178,
+      "event": "run_end"
+    },
+    "checkpoint": {
+      "path": "H:\\elt_data\\runs\\grpo_side_lora_tool_synthetic_v2_bridge\\last.pt",
+      "bytes": 195406221,
+      "age_sec": 451.4,
+      "last_write_time": "2026-05-03T11:25:31.0331727+09:00"
+    },
+    "eta": null,
+    "distill": {
+      "path": "H:\\elt_data\\gguf_distill\\qwen35_hauhaucs_all_remaining_queue\\status.json",
+      "age_sec": 469094.6,
+      "state": "complete",
+      "stage": "complete",
+      "processed_tasks": null,
+      "total_tasks": null,
+      "progress_pct": null,
+      "eta_sec": null,
+      "error_count": null,
+      "last_error": ""
+    },
+    "gpu": {
+      "memory_used_mb": 447,
+      "memory_total_mb": 12288,
+      "utilization_pct": 25,
+      "temperature_c": 41,
+      "power_w": 18.39
+    },
+    "disk": [
+      {
+        "name": "C",
+        "free_gb": 7.68,
+        "used_gb": 921.98
+      },
+      {
+        "name": "H",
+        "free_gb": 79.85,
+        "used_gb": 874
+      }
+    ]
+  },
+  "dataset": {
+    "total_records": 1024,
+    "valid_json_records": 1024,
+    "schema_valid_rate": 1.0,
+    "unique_text_ratio": 1.0,
+    "exact_duplicate_count": 0,
+    "exact_duplicate_ratio": 0.0,
+    "duplicate_prompt_count": 0,
+    "fallback_reject_count": 0,
+    "verifier_pass_rate": 1.0,
+    "verifier_pass_count": 1024,
+    "verifier_total": 1024,
+    "answer_distribution": {},
+    "retry_count": 0,
+    "accepted_records": 1024,
+    "attempted_tasks": 1024,
+    "generation_attempts": 1024,
+    "quality_reject_count": 0,
+    "quality_reject_reasons": {},
+    "domain_counts": {
+      "openclaw_secret_safe_provider_diagnostics": 86,
+      "helmes_general_agent_task_ladder": 86,
+      "hf_github_cited_publish_plan": 86,
+      "defensive_security_static_first_triage": 85,
+      "memory_with_live_verification": 85,
+      "connector_read_only_briefing": 85,
+      "desktop_companion_local_first_plan": 85,
+      "checkpoint_safe_stall_recovery": 85,
+      "agent_lora_sft_bridge_probe": 85,
+      "openclaw_repo_triage_patch_plan": 86,
+      "elt_sparse_monitoring_decision": 85,
+      "scoped_git_closeout_multi_repo": 85
+    },
+    "label_counts": {
+      "json_match": 1024
+    },
+    "split_counts": {
+      "train": 768,
+      "val": 256
+    },
+    "lane_counts": {
+      "tool_use": 1024
+    },
+    "task_counts": {
+      "openclaw_secret_safe_provider_diagnostics": 86,
+      "helmes_general_agent_task_ladder": 86,
+      "hf_github_cited_publish_plan": 86,
+      "defensive_security_static_first_triage": 85,
+      "memory_with_live_verification": 85,
+      "connector_read_only_briefing": 85,
+      "desktop_companion_local_first_plan": 85,
+      "checkpoint_safe_stall_recovery": 85,
+      "agent_lora_sft_bridge_probe": 85,
+      "openclaw_repo_triage_patch_plan": 86,
+      "elt_sparse_monitoring_decision": 85,
+      "scoped_git_closeout_multi_repo": 85
+    },
+    "source": "synthetic-v2-agent-openclaw-helmes",
+    "agent_lane": "openclaw_helmes_agent",
+    "output_root": "training_data\\synthetic_v2_agent",
+    "records_requested": 1024,
+    "records": 1024,
+    "train_records": 768,
+    "val_records": 256,
+    "failure_records": 1024,
+    "failure_expected_zero_rate": 1.0,
+    "difficulty_counts": {
+      "bridge": 512,
+      "hard": 512
+    },
+    "agent_focus_counts": {
+      "openclaw_repo_ops": 86,
+      "openclaw_provider_diagnostics": 86,
+      "helmes_general_agent": 86,
+      "release_ops": 86,
+      "long_run_monitoring": 85,
+      "security_triage": 85,
+      "context_engineering": 85,
+      "connector_agent": 85,
+      "git_closeout": 85,
+      "desktop_companion": 85,
+      "failure_recovery": 85,
+      "lora_sft_bridge": 85
+    },
+    "safety_risk_counts": {
+      "medium": 512,
+      "high": 512
+    },
+    "failure_counts": {
+      "wrong_tool_order": 171,
+      "secret_exposure": 86,
+      "missing_evidence": 342,
+      "ignores_stop_condition": 170,
+      "unsafe_mutation": 170,
+      "no_replay_guard": 85
+    },
+    "benchmark_cases_path": "training_data\\synthetic_v2_agent\\benchmarks\\synthetic_v2_agent_val_cases.jsonl",
+    "benchmark_manifest_path": "training_data\\synthetic_v2_agent\\benchmarks\\synthetic_v2_agent_val_manifest.yaml",
+    "rejected": {}
+  },
+  "bridge_grpo_runs": {
+    "code": {
+      "lane": "code",
+      "path": "H:\\elt_data\\runs\\grpo_side_lora_code_synthetic_v2_bridge",
+      "exists": true,
+      "run_end": true,
+      "event_count": 136,
+      "grpo_step_count": 96,
+      "latest_grpo_step": 95,
+      "final_checkpoint_step": 96,
+      "final_correct_rate": 0.0,
+      "final_format_rate": 1.0,
+      "mean_correct_rate": 0.03125,
+      "max_correct_rate": 0.5,
+      "mean_format_rate": 1.0,
+      "mean_reward": 0.013984375090027848,
+      "nonzero_reward_steps": 25,
+      "checkpoint_count": 37,
+      "last_checkpoint_age_sec": 6095.408274173737,
+      "metrics_age_sec": 6095.4041657447815
+    },
+    "math": {
+      "lane": "math",
+      "path": "H:\\elt_data\\runs\\grpo_side_lora_math_synthetic_v2_bridge",
+      "exists": true,
+      "run_end": true,
+      "event_count": 110,
+      "grpo_step_count": 96,
+      "latest_grpo_step": 95,
+      "final_checkpoint_step": 96,
+      "final_correct_rate": 0.0,
+      "final_format_rate": 1.0,
+      "mean_correct_rate": 0.22916666666666666,
+      "max_correct_rate": 1.0,
+      "mean_format_rate": 0.96875,
+      "mean_reward": 0.22916666666666666,
+      "nonzero_reward_steps": 34,
+      "checkpoint_count": 11,
+      "last_checkpoint_age_sec": 3502.7146356105804,
+      "metrics_age_sec": 3502.7126252651215
+    },
+    "stem": {
+      "lane": "stem",
+      "path": "H:\\elt_data\\runs\\grpo_side_lora_stem_synthetic_v2_bridge",
+      "exists": true,
+      "run_end": true,
+      "event_count": 107,
+      "grpo_step_count": 96,
+      "latest_grpo_step": 95,
+      "final_checkpoint_step": 96,
+      "final_correct_rate": 1.0,
+      "final_format_rate": 1.0,
+      "mean_correct_rate": 0.8958333333333334,
+      "max_correct_rate": 1.0,
+      "mean_format_rate": 0.9479166666666666,
+      "mean_reward": 0.8958333333333334,
+      "nonzero_reward_steps": 96,
+      "checkpoint_count": 8,
+      "last_checkpoint_age_sec": 1989.0859913825989,
+      "metrics_age_sec": 1989.081966638565
+    },
+    "tool": {
+      "lane": "tool",
+      "path": "H:\\elt_data\\runs\\grpo_side_lora_tool_synthetic_v2_bridge",
+      "exists": true,
+      "run_end": true,
+      "event_count": 107,
+      "grpo_step_count": 96,
+      "latest_grpo_step": 95,
+      "final_checkpoint_step": 96,
+      "final_correct_rate": 0.0,
+      "final_format_rate": 1.0,
+      "mean_correct_rate": 0.0,
+      "max_correct_rate": 0.0,
+      "mean_format_rate": 1.0,
+      "mean_reward": 0.0,
+      "nonzero_reward_steps": 0,
+      "checkpoint_count": 8,
+      "last_checkpoint_age_sec": 478.8832850456238,
+      "metrics_age_sec": 478.88127970695496
+    }
+  },
+  "derived": {
+    "bridge_complete_count": 4,
+    "bridge_total_count": 4,
+    "mean_correct_rate_across_lane_means": 0.2890625,
+    "max_correct_rate_across_lanes": 1.0,
+    "dataset_total_pairs": 2048,
+    "focus_bucket_count": 12,
+    "domain_bucket_count": 12
+  }
+}
