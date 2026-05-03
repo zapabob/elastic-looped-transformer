@@ -1,0 +1,22 @@
+{
+  "repo_id": "zapabob/elt-lm-qwen35-side-stem-v2-bridge",
+  "hf_dir": "H:\\elt_data\\hf_exports\\elt-lm-qwen35-side-stem-v2-bridge-merged",
+  "gguf_path": "H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge.gguf",
+  "hf_safetensors_ready": true,
+  "gguf_ready": true,
+  "llama_cpp_converter": "C:\\Users\\downl\\Desktop\\llama.cpp-zapabob\\convert_hf_to_gguf.py",
+  "llama_cpp_converter_exists": true,
+  "commands": {
+    "hf_upload": "hf upload zapabob/elt-lm-qwen35-side-stem-v2-bridge H:\\elt_data\\hf_exports\\elt-lm-qwen35-side-stem-v2-bridge-merged . --repo-type model",
+    "gguf_convert": "python C:\\Users\\downl\\Desktop\\llama.cpp-zapabob\\convert_hf_to_gguf.py H:\\elt_data\\hf_exports\\elt-lm-qwen35-side-stem-v2-bridge-merged --outfile H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge.gguf",
+    "gguf_upload": "hf upload zapabob/elt-lm-qwen35-side-stem-v2-bridge-GGUF H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge.gguf elt-lm-qwen35-side-stem-v2-bridge.gguf --repo-type model",
+    "turboquant_upload": "hf upload zapabob/elt-lm-qwen35-side-stem-v2-bridge-GGUF H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge-TQ4_1S.gguf elt-lm-qwen35-side-stem-v2-bridge-TQ4_1S.gguf --repo-type model",
+    "turboquant_convert": "uv run --no-sync python C:\\Users\\downl\\Desktop\\Turboquant-CUDA\\scripts\\convert_weight_turboquant_gguf.py --input-gguf H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge-Q8_0.gguf --output-gguf H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge-TQ4_1S.gguf --model-family Qwen/Qwen3.5-4B --replace-existing-turboquant-metadata --force"
+  },
+  "blocking_notes": [],
+  "turboquant_gguf_path": "H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge-TQ4_1S.gguf",
+  "turboquant_source_gguf_path": "H:\\elt_data\\releases\\elt-lm-qwen35-side-stem-v2-bridge-Q8_0.gguf",
+  "turboquant_ready": true,
+  "turboquant_converter": "C:\\Users\\downl\\Desktop\\Turboquant-CUDA\\scripts\\convert_weight_turboquant_gguf.py",
+  "turboquant_converter_exists": true
+}
