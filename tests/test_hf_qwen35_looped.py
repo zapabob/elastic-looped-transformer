@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import json
 import types
 from pathlib import Path
 
@@ -330,6 +331,13 @@ def test_export_merged_qwen35_hf_writes_elt_config_metadata(tmp_path: Path) -> N
     config = (tmp_path / "hf_merged" / "config.json").read_text(encoding="utf-8")
     assert '"elt_config"' in config
     assert '"L_max": 3' in config
+    assert '"loop_unit": "qwen3.5_text_model_pass"' in config
+    assert '"looped_runtime_required": true' in config
+    assert '"turboquant_model_family": "ELT/Qwen3.5-looped"' in config
+    manifest = json.loads((tmp_path / "hf_merged" / "elt_export_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["looped_runtime_required"] is True
+    assert manifest["gguf_runtime_ready"] is False
+    assert manifest["gguf_runtime_status"] == "requires_looped_qwen35_runtime"
     tensors = load_file(tmp_path / "hf_merged" / "model.safetensors")
     assert "model.embed_tokens.weight" in tensors
     assert not any(".lora_" in key for key in tensors)

@@ -114,6 +114,69 @@ def test_release_readiness_reports_turboquant_artifact(tmp_path: Path) -> None:
     assert not manifest["blocking_notes"]
 
 
+def test_release_readiness_blocks_looped_elt_until_runtime_support_is_declared(tmp_path: Path) -> None:
+    hf_dir = tmp_path / "hf"
+    llama_cpp_dir = tmp_path / "llama.cpp"
+    turboquant_dir = tmp_path / "Turboquant-CUDA"
+    hf_dir.mkdir()
+    llama_cpp_dir.mkdir()
+    (turboquant_dir / "scripts").mkdir(parents=True)
+    (hf_dir / "config.json").write_text(
+        json.dumps({
+            "elt_config": {
+                "schema": "elt.looped_qwen35.v1",
+                "backbone_kind": "hf_qwen35_looped",
+                "L_min": 1,
+                "L_max": 3,
+                "L_default": 3,
+                "loop_unit": "qwen3.5_text_model_pass",
+                "looped_runtime_required": True,
+                "turboquant_model_family": "ELT/Qwen3.5-looped",
+            }
+        }),
+        encoding="utf-8",
+    )
+    (hf_dir / "model.safetensors").write_bytes(b"stub")
+    (hf_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (llama_cpp_dir / "convert_hf_to_gguf.py").write_text("# stub\n", encoding="utf-8")
+    (turboquant_dir / "scripts" / "convert_weight_turboquant_gguf.py").write_text("# stub\n", encoding="utf-8")
+    gguf = tmp_path / "model.gguf"
+    q8_gguf = tmp_path / "model-Q8_0.gguf"
+    tq_gguf = tmp_path / "model-TQ4_1S.gguf"
+    gguf.write_bytes(b"stub")
+    q8_gguf.write_bytes(b"stub")
+    tq_gguf.write_bytes(b"stub")
+
+    blocked = build_release_manifest(
+        hf_dir=hf_dir,
+        gguf_path=gguf,
+        repo_id="org/model",
+        llama_cpp_dir=llama_cpp_dir,
+        turboquant_gguf_path=tq_gguf,
+        turboquant_source_gguf_path=q8_gguf,
+        turboquant_cuda_dir=turboquant_dir,
+    )
+
+    assert blocked["elt_loop"]["looped_runtime_required"] is True
+    assert "--model-family ELT/Qwen3.5-looped" in blocked["commands"]["turboquant_convert"]
+    assert any("loop-aware llama.cpp runtime" in note for note in blocked["blocking_notes"])
+    assert any("preserves elt.* loop metadata" in note for note in blocked["blocking_notes"])
+
+    ready = build_release_manifest(
+        hf_dir=hf_dir,
+        gguf_path=gguf,
+        repo_id="org/model",
+        llama_cpp_dir=llama_cpp_dir,
+        turboquant_gguf_path=tq_gguf,
+        turboquant_source_gguf_path=q8_gguf,
+        turboquant_cuda_dir=turboquant_dir,
+        loop_runtime_supported=True,
+        turboquant_loop_metadata_supported=True,
+    )
+
+    assert ready["blocking_notes"] == []
+
+
 def test_jsonl_case_task_overrides_manifest_default(tmp_path: Path) -> None:
     path = tmp_path / "cases.jsonl"
     path.write_text(

@@ -304,6 +304,12 @@ llama.cpp Q8_0 GGUF, and Turboquant TQ4_1S GGUF are ready for handoff. The
 side-LoRA bridge remains the `L_min=L_max=1` path; native looped ELT runtime
 support is tracked separately from this release artifact.
 
+For `L_max > 1` exports, `elt_lm.release_readiness` now reads `elt_config` and
+keeps the release blocked until the caller declares both a loop-aware llama.cpp
+runtime (`--loop-runtime-supported`) and a Turboquant converter that preserves
+`elt.*` loop metadata (`--turboquant-loop-metadata-supported`). Those looped
+artifacts use the Turboquant model family `ELT/Qwen3.5-looped`.
+
 ## Cross-validated benchmark comparison
 
 `elt-anytime` already emits case-level correctness and K-fold accuracy summaries
