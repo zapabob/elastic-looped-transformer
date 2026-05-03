@@ -275,22 +275,34 @@ The 2026-05-03 stem bridge candidate has been exported at
 
 GGUF release readiness follows the current llama.cpp path: first produce a
 Transformers/HF directory with `config.json`, tokenizer files, and safetensors,
-then run `convert_hf_to_gguf.py`, then upload the resulting `.gguf` to a
-separate `*-GGUF` model repo. The repo helper records the exact commands and
-blockers:
+then run `convert_hf_to_gguf.py`, optionally quantize to Q8_0, and use
+Turboquant-CUDA for the TQ4_1S artifact. The repo helper records the exact
+commands and blockers:
+
+```bash
+uv run python -m elt_lm.export_merged_qwen35_hf \
+  --ckpt H:/elt_data/runs/grpo_side_lora_stem_synthetic_v2_bridge/last.pt \
+  --out-dir H:/elt_data/hf_exports/elt-lm-qwen35-side-stem-v2-bridge-merged \
+  --tokenizer H:/Qwen3.5-9B-official-hf \
+  --repo-id zapabob/elt-lm-qwen35-side-stem-v2-bridge
+```
 
 ```bash
 uv run python -m elt_lm.release_readiness \
-  --hf-dir hf_export/elt-lm-qwen35-side-stem-v2-bridge \
+  --hf-dir H:/elt_data/hf_exports/elt-lm-qwen35-side-stem-v2-bridge-merged \
   --gguf-path H:/elt_data/releases/elt-lm-qwen35-side-stem-v2-bridge.gguf \
   --repo-id zapabob/elt-lm-qwen35-side-stem-v2-bridge \
   --llama-cpp-dir C:/Users/downl/Desktop/llama.cpp-zapabob \
-  --out _docs/assets/2026-05-03-deepresearch-elt-llm-implementation/release_readiness_stem_bridge.json
+  --turboquant-gguf-path H:/elt_data/releases/elt-lm-qwen35-side-stem-v2-bridge-TQ4_1S.gguf \
+  --turboquant-source-gguf-path H:/elt_data/releases/elt-lm-qwen35-side-stem-v2-bridge-Q8_0.gguf \
+  --turboquant-cuda-dir C:/Users/downl/Desktop/Turboquant-CUDA \
+  --out _docs/assets/2026-05-03-deepresearch-elt-llm-implementation/release_readiness_stem_bridge_merged.json
 ```
 
-Current status: adapter safetensors are ready; merged/full HF safetensors and
-GGUF are not yet claimed ready because the side-LoRA bridge has not been merged
-into a HF-loadable base directory for llama.cpp conversion.
+Current status as of 2026-05-03: merged HF safetensors, llama.cpp BF16 GGUF,
+llama.cpp Q8_0 GGUF, and Turboquant TQ4_1S GGUF are ready for handoff. The
+side-LoRA bridge remains the `L_min=L_max=1` path; native looped ELT runtime
+support is tracked separately from this release artifact.
 
 ## Cross-validated benchmark comparison
 

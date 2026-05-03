@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+from safetensors.torch import load_file
 from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5TextConfig
 from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5ForCausalLM
 
@@ -14,6 +15,7 @@ from elt_lm.bootstrap_qwen35_elt import bootstrap_qwen35_elt_checkpoint
 from elt_lm.config import ILSDConfig, ModelConfig, TrainConfig
 from elt_lm.data import PackedTokenDataset
 from elt_lm.export_lora_adapter import export_lora_adapter
+from elt_lm.export_merged_qwen35_hf import export_merged_qwen35_hf
 from elt_lm.hf_qwen35_looped import HFQwen35LoopedLM, LoRALinear, patch_fla_windows_cpu_fallback
 from elt_lm.ilsd import ILSDLossFn
 from elt_lm.model import build_model
@@ -257,6 +259,80 @@ def test_export_lora_adapter_writes_small_artifact(tmp_path: Path) -> None:
     assert (tmp_path / "adapter" / "adapter_model.safetensors").exists()
     assert (tmp_path / "adapter" / "adapter_config.json").exists()
     assert (tmp_path / "adapter" / "README.md").exists()
+
+
+@torch.no_grad()
+def test_export_merged_qwen35_hf_merges_lora_delta(tmp_path: Path) -> None:
+    _make_tiny_qwen_dir(tmp_path / "src")
+    base_ckpt, _ = bootstrap_qwen35_elt_checkpoint(
+        hf_model_path=str(tmp_path / "src"),
+        out_path=tmp_path / "base.pt",
+        tokenizer_path="H:/Qwen3.5-9B-official-hf",
+    )
+    cfg = _make_hf_loop_cfg(tmp_path / "src", L_max=1, trainable_mode="lora", lora_rank=4)
+    cfg.hf_save_adapter_only = True
+    cfg.hf_adapter_base_ckpt = str(base_ckpt)
+
+    looped = build_model(cfg)
+    assert isinstance(looped, HFQwen35LoopedLM)
+    looped.load_state_dict(torch.load(base_ckpt, map_location="cpu", weights_only=False)["model"])
+    for name, param in looped.named_parameters():
+        if ".lora_B" in name:
+            param.fill_(0.125)
+    opt = torch.optim.AdamW([p for p in looped.parameters() if p.requires_grad], lr=1e-3)
+    adapter_ckpt = tmp_path / "adapter_only.pt"
+    torch.save(_build_ckpt_state(looped, opt, TrainConfig(model=cfg), step=3), adapter_ckpt)
+
+    manifest = export_merged_qwen35_hf(
+        ckpt_path=adapter_ckpt,
+        out_dir=tmp_path / "hf_merged",
+        tokenizer_path=tmp_path / "src",
+        repo_id="zapabob/test-merged",
+        dtype_name="fp32",
+        require_tokenizer=False,
+    )
+
+    exported = Qwen3_5ForCausalLM.from_pretrained(tmp_path / "hf_merged", torch_dtype=torch.float32).eval()
+    input_ids = torch.randint(0, 128, (2, 10))
+    ref = looped(input_ids, L=1).logits
+    got = exported(input_ids=input_ids, use_cache=False).logits
+    assert torch.allclose(ref, got, atol=1e-5, rtol=1e-5)
+    assert manifest["merged_lora_modules"] > 0
+    assert manifest["tokenizer_ready"] is False
+    assert (tmp_path / "hf_merged" / "elt_export_manifest.json").exists()
+
+
+def test_export_merged_qwen35_hf_writes_elt_config_metadata(tmp_path: Path) -> None:
+    _make_tiny_qwen_dir(tmp_path / "src")
+    base_ckpt, _ = bootstrap_qwen35_elt_checkpoint(
+        hf_model_path=str(tmp_path / "src"),
+        out_path=tmp_path / "base.pt",
+        tokenizer_path="H:/Qwen3.5-9B-official-hf",
+    )
+    cfg = _make_hf_loop_cfg(tmp_path / "src", L_max=3, trainable_mode="lora", lora_rank=4)
+    cfg.hf_save_adapter_only = True
+    cfg.hf_adapter_base_ckpt = str(base_ckpt)
+    model = build_model(cfg)
+    assert isinstance(model, HFQwen35LoopedLM)
+    model.load_state_dict(torch.load(base_ckpt, map_location="cpu", weights_only=False)["model"])
+    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=1e-3)
+    adapter_ckpt = tmp_path / "adapter_only.pt"
+    torch.save(_build_ckpt_state(model, opt, TrainConfig(model=cfg), step=1), adapter_ckpt)
+
+    export_merged_qwen35_hf(
+        ckpt_path=adapter_ckpt,
+        out_dir=tmp_path / "hf_merged",
+        tokenizer_path=tmp_path / "src",
+        dtype_name="fp32",
+        require_tokenizer=False,
+    )
+
+    config = (tmp_path / "hf_merged" / "config.json").read_text(encoding="utf-8")
+    assert '"elt_config"' in config
+    assert '"L_max": 3' in config
+    tensors = load_file(tmp_path / "hf_merged" / "model.safetensors")
+    assert "model.embed_tokens.weight" in tensors
+    assert not any(".lora_" in key for key in tensors)
 
 
 def test_bootstrap_qwen35_elt_checkpoint_roundtrip(tmp_path: Path) -> None:
