@@ -1,0 +1,8 @@
+benchmarks:
+- name: stem_bridge_candidate_val
+  kind: jsonl
+  task: mcq_reasoning
+  path: training_data/synthetic_v2_hard/stem_reasoning/benchmarks/synthetic_v2_bridge_stem_reasoning_val_cases.jsonl
+  prompt_field: prompt
+  reference_field: reference
+  limit: 128

@@ -1,0 +1,14 @@
+{
+  "benchmark_records": 64,
+  "chosen_min_score": 1.0,
+  "failure_labels": {
+    "unsafe_or_wrong_tool": 256
+  },
+  "lane": "tool_use",
+  "preference_train_records": 192,
+  "preference_val_records": 64,
+  "rejected_max_score": 0.49,
+  "task": "json_tool_call_match",
+  "train_records": 192,
+  "val_records": 128
+}

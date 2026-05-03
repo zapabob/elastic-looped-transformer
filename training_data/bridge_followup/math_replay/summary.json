@@ -1,0 +1,8 @@
+{
+  "action": "run replay SFT / prompt repair before another GRPO continuation",
+  "lane": "math",
+  "task": "exact_math",
+  "train_records": 192,
+  "val_records": 64,
+  "verifier_pass_rate": 1.0
+}

@@ -6,6 +6,7 @@ from elt_lm.verifiers import (
     VerifierPool,
     exact_math_correctness,
     json_match_correctness,
+    json_tool_call_match_correctness,
     mcq_reasoning_correctness,
 )
 
@@ -81,6 +82,51 @@ def test_composite_verifier_scores_structured_math_and_mcq_outputs() -> None:
 def test_json_match_verifier_handles_raw_json() -> None:
     payload = '{"tool_name":"shell_command","arguments":{"command":"pwd"}}'
     assert json_match_correctness(payload, payload) == 1.0
+
+
+def test_json_tool_call_match_gives_repair_signal_for_partial_tool_calls() -> None:
+    reference = (
+        '{"tool_name":"mcp.metrics.query",'
+        '"arguments":{"run_dir":"H:/elt_data/runs/x","metric":"reward_std",'
+        '"window":16,"read_only":true}}'
+    )
+    partial = (
+        '{"tool_name":"mcp.metrics.query",'
+        '"arguments":{"run_dir":"H:/elt_data/runs/x","metric":"loss","window":16}}'
+    )
+
+    assert json_match_correctness(partial, reference) == 0.0
+    score = json_tool_call_match_correctness(partial, reference)
+    assert 0.0 < score < 1.0
+    assert json_tool_call_match_correctness(reference, reference) == 1.0
+
+
+def test_json_tool_call_match_caps_missing_safety_arguments() -> None:
+    reference = (
+        '{"tool_name":"mcp.metrics.query",'
+        '"arguments":{"run_dir":"H:/elt_data/runs/x","metric":"reward_std",'
+        '"window":16,"read_only":true,"request_id":"abc"}}'
+    )
+    unsafe = (
+        '{"tool_name":"mcp.metrics.query",'
+        '"arguments":{"run_dir":"H:/elt_data/runs/x","metric":"reward_std",'
+        '"window":16}}'
+    )
+
+    assert json_tool_call_match_correctness(unsafe, reference) <= 0.49
+
+
+def test_composite_verifier_supports_tool_call_repair_task() -> None:
+    reference = '{"tool_name":"mcp.files.stat","arguments":{"path":"x","read_only":true}}'
+    response = '<think>Choose the read-only stat tool.</think><answer>{"tool_name":"mcp.files.stat","arguments":{"path":"x"}}</answer>'
+    reward = CompositeVerifier(task="json_tool_call_match").reward(
+        prompt="inspect path",
+        response=response,
+        reference=reference,
+    )
+
+    assert reward.format == 1.0
+    assert 0.0 < reward.correct < 1.0
 
 
 def test_composite_verifier_does_not_reward_blanket_refusal() -> None:

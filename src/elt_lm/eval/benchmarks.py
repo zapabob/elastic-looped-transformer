@@ -27,6 +27,7 @@ from elt_lm.verifiers import (
     format_score,
     gsm8k_correctness,
     json_match_correctness,
+    json_tool_call_match_correctness,
     mcq_reasoning_correctness,
     python_exec_correctness,
 )
@@ -42,6 +43,7 @@ BenchmarkTask = Literal[
     "python_exec",
     "code_static_spec",
     "json_match",
+    "json_tool_call_match",
 ]
 
 BENCHMARK_TASKS: set[str] = {
@@ -53,6 +55,7 @@ BENCHMARK_TASKS: set[str] = {
     "python_exec",
     "code_static_spec",
     "json_match",
+    "json_tool_call_match",
 }
 
 
@@ -243,6 +246,8 @@ def score_response(task: BenchmarkTask, response: str, reference: str) -> float:
         return code_static_spec_correctness(response, reference)
     if task == "json_match":
         return json_match_correctness(response, reference)
+    if task == "json_tool_call_match":
+        return json_tool_call_match_correctness(response, reference)
     raise ValueError(f"unknown benchmark task: {task}")
 
 

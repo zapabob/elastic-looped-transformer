@@ -74,6 +74,7 @@ elt-build-synthetic-v2-reasoning-bridge = "elt_lm.synthetic_v2_reasoning_bridge:
 elt-build-synthetic-v2-tool-bridge = "elt_lm.synthetic_v2_tool_bridge:cli"
 elt-build-synthetic-v2-agent = "elt_lm.synthetic_v2_agent:cli"
 elt-analyze-bridge-diagnostics = "elt_lm.bridge_diagnostics:cli"
+elt-build-bridge-followup = "elt_lm.bridge_followup:cli"
 elt-bootstrap-qwen35-elt = "elt_lm.bootstrap_qwen35_elt:cli"
 elt-export-lora-adapter = "elt_lm.export_lora_adapter:cli"
 elt-infer = "elt_lm.infer:cli"

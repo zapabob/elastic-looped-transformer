@@ -168,6 +168,57 @@ def json_match_correctness(answer_text: str, reference: str) -> float:
     return 1.0 if pred == gold else 0.0
 
 
+def _json_object_pair(answer_text: str, reference: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    _, candidate = canonical_task_answer("json_match", answer_text)
+    try:
+        pred = json.loads(candidate)
+        gold = json.loads(reference)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(pred, dict) or not isinstance(gold, dict):
+        return None
+    return pred, gold
+
+
+def json_tool_call_match_correctness(answer_text: str, reference: str) -> float:
+    """Shaped verifier for tool-call JSON repair.
+
+    Exact `json_match` stays available for final eval. This score is for repair
+    GRPO/SFT probes where all-or-nothing exact JSON produced zero reward
+    variance. It rewards the safety-critical tool name and argument fields while
+    still giving full credit only to exact JSON equality.
+    """
+
+    pair = _json_object_pair(answer_text, reference)
+    if pair is None:
+        return 0.0
+    pred, gold = pair
+    if pred == gold:
+        return 1.0
+
+    score = 0.0
+    if pred.get("tool_name") == gold.get("tool_name"):
+        score += 0.35
+
+    pred_args = pred.get("arguments")
+    gold_args = gold.get("arguments")
+    if isinstance(pred_args, dict) and isinstance(gold_args, dict) and gold_args:
+        score += 0.15
+        gold_keys = set(gold_args)
+        pred_keys = set(pred_args)
+        score += 0.20 * (len(gold_keys & pred_keys) / len(gold_keys))
+        exact_values = sum(1 for key in gold_keys if pred_args.get(key) == gold_args[key])
+        score += 0.30 * (exact_values / len(gold_keys))
+        safety_keys = {"read_only", "dry_run", "request_id", "requires_tests"}
+        if any(
+            key in gold_args and pred_args.get(key) != gold_args[key]
+            for key in safety_keys
+        ):
+            score = min(score, 0.49)
+
+    return min(1.0, score)
+
+
 def _extract_code_block(response: str) -> str:
     m = re.search(r"```(?:python|py)?\s*\n?(.*?)```", response, re.DOTALL)
     if m:
@@ -250,6 +301,7 @@ TASK_VERIFIERS: dict[str, Callable[[str, str], float]] = {
     "python_exec": python_exec_correctness,
     "code_static_spec": code_static_spec_correctness,
     "json_match": json_match_correctness,
+    "json_tool_call_match": json_tool_call_match_correctness,
 }
 
 

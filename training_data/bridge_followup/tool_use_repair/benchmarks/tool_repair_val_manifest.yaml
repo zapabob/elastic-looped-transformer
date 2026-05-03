@@ -1,0 +1,8 @@
+benchmarks:
+- name: tool_repair_bridge_val
+  kind: jsonl
+  task: json_tool_call_match
+  path: training_data/bridge_followup/tool_use_repair/benchmarks/tool_repair_val_cases.jsonl
+  prompt_field: prompt
+  reference_field: reference
+  limit: 64

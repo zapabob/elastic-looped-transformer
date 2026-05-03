@@ -1,0 +1,23 @@
+{
+  "lane": "stem",
+  "state": "exported_eval_timeout",
+  "export_adapter_dir": "H:/elt_data/adapters/qwen35_4b_side/synthetic_stem_v2_bridge_grpo_candidate",
+  "export_adapter_bytes": 65090271,
+  "eval_attempts": [
+    {
+      "manifest": "training_data/bridge_followup/stem_eval/stem_bridge_eval_manifest.yaml",
+      "limit": 128,
+      "max_new_tokens": 96,
+      "timeout_sec": 900,
+      "result": "timeout_before_summary"
+    },
+    {
+      "manifest": "training_data/bridge_followup/stem_eval/stem_bridge_eval_smoke_manifest.yaml",
+      "limit": 8,
+      "max_new_tokens": 32,
+      "timeout_sec": 600,
+      "result": "timeout_before_summary"
+    }
+  ],
+  "next": "Run the smoke manifest in a longer foreground window or add per-case benchmark telemetry before treating STEM eval as complete."
+}

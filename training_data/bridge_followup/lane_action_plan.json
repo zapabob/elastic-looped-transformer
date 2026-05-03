@@ -1,0 +1,59 @@
+{
+  "code": {
+    "artifact": "code_replay/distill_train.jsonl",
+    "next": "use code_replay SFT subset before another GRPO continuation",
+    "state": "sparse_success"
+  },
+  "math": {
+    "artifact": "math_replay/distill_train.jsonl",
+    "next": "use math_replay SFT subset before another GRPO continuation",
+    "state": "sparse_success"
+  },
+  "stem": {
+    "artifact": "stem_eval/stem_bridge_eval_manifest.yaml",
+    "next": "export adapter and run bounded bridge STEM eval",
+    "state": "ready_for_export_eval"
+  },
+  "summaries": {
+    "code": {
+      "action": "run replay SFT / prompt repair before another GRPO continuation",
+      "lane": "code",
+      "task": "python_exec",
+      "train_records": 192,
+      "val_records": 64,
+      "verifier_pass_rate": 1.0
+    },
+    "math": {
+      "action": "run replay SFT / prompt repair before another GRPO continuation",
+      "lane": "math",
+      "task": "exact_math",
+      "train_records": 192,
+      "val_records": 64,
+      "verifier_pass_rate": 1.0
+    },
+    "stem": {
+      "case_path": "training_data\\synthetic_v2_hard\\stem_reasoning\\benchmarks\\synthetic_v2_bridge_stem_reasoning_val_cases.jsonl",
+      "limit": 128,
+      "manifest_path": "training_data\\bridge_followup\\stem_eval\\stem_bridge_eval_manifest.yaml"
+    },
+    "tool": {
+      "benchmark_records": 64,
+      "chosen_min_score": 1.0,
+      "failure_labels": {
+        "unsafe_or_wrong_tool": 256
+      },
+      "lane": "tool_use",
+      "preference_train_records": 192,
+      "preference_val_records": 64,
+      "rejected_max_score": 0.49,
+      "task": "json_tool_call_match",
+      "train_records": 192,
+      "val_records": 128
+    }
+  },
+  "tool": {
+    "artifact": "tool_use_repair/distill_train.jsonl",
+    "next": "switch repair probe to json_tool_call_match and failure-contrast SFT/preference data",
+    "state": "blocked_no_reward_signal"
+  }
+}
