@@ -211,6 +211,8 @@ Merged Qwen3.5 side-LoRA export from the ELT-LM workflow.
 - Source checkpoint: `{metadata["source_checkpoint"]}`
 - Base checkpoint: `{metadata["base_checkpoint"] or "embedded/full checkpoint"}`
 - ELT loop range: `L={metadata["L_min"]}..{metadata["L_max"]}`
+- ELT loop unit: `{metadata["loop_unit"]}`
+- GGUF runtime status: `{metadata["gguf_runtime_status"]}`
 - Merged LoRA modules: `{metadata["merged_lora_modules"]}`
 
 The weights are saved as standard Hugging Face safetensors so llama.cpp can run
@@ -250,11 +252,30 @@ def export_merged_qwen35_hf(
 
     text_cfg = load_qwen35_text_config(cfg.hf_model_path)
     text_cfg.architectures = ["Qwen3_5ForCausalLM"]
+    looped_runtime_required = int(cfg.L_max) > 1 or int(cfg.L_min) > 1
+    loop_unit = "qwen3.5_text_model_pass"
+    gguf_runtime_status = (
+        "requires_looped_qwen35_runtime"
+        if looped_runtime_required
+        else "plain_qwen35_compatible"
+    )
+    turboquant_model_family = (
+        "ELT/Qwen3.5-looped"
+        if looped_runtime_required
+        else cfg.source_model_id or cfg.hf_model_path
+    )
     elt_config = {
+        "schema": "elt.looped_qwen35.v1",
         "backbone_kind": cfg.backbone_kind,
         "source_model_id": cfg.source_model_id or cfg.hf_model_path,
         "L_min": cfg.L_min,
         "L_max": cfg.L_max,
+        "L_default": cfg.L_max,
+        "loop_unit": loop_unit,
+        "looped_runtime_required": looped_runtime_required,
+        "gguf_architecture": "qwen35",
+        "gguf_runtime_status": gguf_runtime_status,
+        "turboquant_model_family": turboquant_model_family,
         "loop_bootstrap_L_max": cfg.loop_bootstrap_L_max,
         "adapter_format": state.get("adapter_format", ""),
         "merged_lora": bool(merged_modules),
@@ -281,6 +302,12 @@ def export_merged_qwen35_hf(
         "merged_lora_modules": len(merged_modules),
         "L_min": cfg.L_min,
         "L_max": cfg.L_max,
+        "L_default": cfg.L_max,
+        "loop_unit": loop_unit,
+        "looped_runtime_required": looped_runtime_required,
+        "gguf_runtime_ready": not looped_runtime_required,
+        "gguf_runtime_status": gguf_runtime_status,
+        "turboquant_model_family": turboquant_model_family,
         "llama_cpp_command": f"python convert_hf_to_gguf.py {out} --outfile <out.gguf>",
     }
     (out / "elt_export_manifest.json").write_text(
