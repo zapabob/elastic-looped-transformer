@@ -1,0 +1,131 @@
+{
+  "source_date": "2026-05-17",
+  "model": "L3 Qwen3.5 ELT Q8_0 GGUF / RTX 3060 / --ngl 999 / K=q8_0, V=turbo3",
+  "evaluation_summaries": [
+    {
+      "name": "Local STEM bridge",
+      "correct": 121,
+      "total": 128,
+      "accuracy": 0.9453125,
+      "ci95_low": 0.8914138332864409,
+      "ci95_high": 0.9732601391168066,
+      "sem": 0.02009679260474285,
+      "mean_prompt_tok_s": 1241.73984375,
+      "mean_decode_tok_s": 50.0234375
+    },
+    {
+      "name": "MMLU-STEM heldout",
+      "correct": 13,
+      "total": 16,
+      "accuracy": 0.8125,
+      "ci95_low": 0.5699064013154177,
+      "ci95_high": 0.9340852122641324,
+      "sem": 0.09757809372497497,
+      "mean_prompt_tok_s": 1268.5,
+      "mean_decode_tok_s": 54.24375
+    },
+    {
+      "name": "GSM8K heldout",
+      "correct": 0,
+      "total": 16,
+      "accuracy": 0.0,
+      "ci95_low": 0.0,
+      "ci95_high": 0.19361341827271994,
+      "sem": 0.0,
+      "mean_prompt_tok_s": 1013.85625,
+      "mean_decode_tok_s": 48.6375
+    }
+  ],
+  "fisher_exact": [
+    {
+      "comparison": "Local STEM bridge vs MMLU-STEM heldout",
+      "test": "Fisher exact two-sided",
+      "p": 0.0834572940008647
+    },
+    {
+      "comparison": "Local STEM bridge vs GSM8K heldout",
+      "test": "Fisher exact two-sided",
+      "p": 3.563756400024485e-16
+    },
+    {
+      "comparison": "MMLU-STEM heldout vs GSM8K heldout",
+      "test": "Fisher exact two-sided",
+      "p": 3.2241943544356854e-06
+    }
+  ],
+  "loop_summaries": [
+    {
+      "L": 1,
+      "correct": 14,
+      "total": 32,
+      "mean": 0.4375,
+      "ci95_low": 0.2816508596944317,
+      "ci95_high": 0.6067469796877387,
+      "sem": 0.08769509500251425,
+      "mean_margin_logprob": 0.0234375,
+      "mean_prompt_tokens": 157,
+      "mean_wall_sec": 0.6606538124997314,
+      "self_correction_vs_first_L": 0.0,
+      "overthinking_vs_first_L": 0.0
+    },
+    {
+      "L": 2,
+      "correct": 18,
+      "total": 32,
+      "mean": 0.5625,
+      "ci95_low": 0.3932530203122613,
+      "ci95_high": 0.7183491403055682,
+      "sem": 0.08769509500251425,
+      "mean_margin_logprob": 0.14453125,
+      "mean_prompt_tokens": 157,
+      "mean_wall_sec": 1.224640487500892,
+      "self_correction_vs_first_L": 0.125,
+      "overthinking_vs_first_L": 0.0
+    },
+    {
+      "L": 3,
+      "correct": 21,
+      "total": 32,
+      "mean": 0.65625,
+      "ci95_low": 0.4831077350878594,
+      "ci95_high": 0.7958976664567146,
+      "sem": 0.08396166117267452,
+      "mean_margin_logprob": 0.3154296725988388,
+      "mean_prompt_tokens": 157,
+      "mean_wall_sec": 1.7801070718746814,
+      "self_correction_vs_first_L": 0.21875,
+      "overthinking_vs_first_L": 0.0
+    }
+  ],
+  "loop_mcnemar_exact": [
+    {
+      "comparison": "L1_vs_L2",
+      "n": 32,
+      "improved": 4,
+      "regressed": 0,
+      "discordant": 4,
+      "mcnemar_exact_p": 0.125
+    },
+    {
+      "comparison": "L1_vs_L3",
+      "n": 32,
+      "improved": 7,
+      "regressed": 0,
+      "discordant": 7,
+      "mcnemar_exact_p": 0.015625
+    },
+    {
+      "comparison": "L2_vs_L3",
+      "n": 32,
+      "improved": 3,
+      "regressed": 0,
+      "discordant": 3,
+      "mcnemar_exact_p": 0.25
+    }
+  ],
+  "notes": [
+    "Accuracy intervals are Wilson 95% confidence intervals from the source evaluators.",
+    "External heldouts are small cached slices; p-values are descriptive evidence, not leaderboard claims.",
+    "Loop-aware rows use paired case ids and exact McNemar/binomial tests over discordant cases."
+  ]
+}

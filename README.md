@@ -316,7 +316,7 @@ the right evidence:
 | Weight GGUF compression | BF16, Q8_0, Q6_K, Q5_K_M, Q4_K_M, IQ4_NL, IQ4_XS, TQ4_1S | file size, PPL/KL, top-k stability, ELT exact/step accuracy |
 | Calibration and tensor policy | ELT corpus imatrix plus protected output/token embedding/attn_v/ffn_down tensors | same-bit-budget recovery versus all-Q4 baselines |
 | KV cache compression | llama.cpp `f16`, `q8_0`, `q4_0`, `q5_0`, `iq4_nl` K/V sweeps | ctx length, KV MiB, VRAM peak, tok/s, K/V asymmetry |
-| TurboQuant-style KV | upstream TBQ3/TBQ4 tracking, not this local TQ4_1S weight artifact | RTX 3060 CUDA serving measurements after CUDA-capable support exists |
+| TurboQuant-style KV | TheTom `turbo2`/`turbo3`/`turbo4` runtime cache types, separate from local TQ4_1S weight artifacts | K-protected `q8_0`/`bf16` sweeps, then RTX 3060 CUDA serving measurements when the GPU is free |
 | DFlash speculative decoding | separate draft/verify serving lane | target equivalence, acceptance length/rate, tok/s, loop-depth stability |
 
 The first publishable claim is therefore not "TQ4_1S is smaller"; it is: ELT
@@ -334,6 +334,113 @@ keeps the release blocked until the caller declares both a loop-aware llama.cpp
 runtime (`--loop-runtime-supported`) and a Turboquant converter that preserves
 `elt.*` loop metadata (`--turboquant-loop-metadata-supported`). Those looped
 artifacts use the Turboquant model family `ELT/Qwen3.5-looped`.
+
+### 2026-05-17 L=3 TheTom K-protected KV sweep
+
+The current `L_max=3` handoff now has corrected BF16/Q8_0/TQ4_1S GGUF
+artifacts plus a TheTom runtime KV smoke sweep. The sweep protects K by keeping
+`--cache-type-k` at only `q8_0` or `bf16`; only V is swept through TheTom
+`turbo2`, `turbo3`, and `turbo4`. This is deliberately separate from
+`TQ4_1S`, which remains an offline GGUF weight-compression artifact.
+
+| artifact | path | bytes | GiB | metadata check |
+|---|---|---:|---:|---|
+| BF16 GGUF | `H:/elt_data/releases/elt-lm-qwen35-side-stem-aha-ilsd-l3.gguf` | 9,695,800,320 | 9.03 | `qwen35.block_count=32`, `elt.loop.L_max=3`, no MTP nextn layer |
+| Q8_0 GGUF | `H:/elt_data/releases/elt-lm-qwen35-side-stem-aha-ilsd-l3-Q8_0.gguf` | 5,157,841,920 | 4.80 | `general.file_type=7`, `elt.gguf.runtime_status=requires_looped_qwen35_runtime` |
+| TQ4_1S GGUF | `H:/elt_data/releases/elt-lm-qwen35-side-stem-aha-ilsd-l3-TQ4_1S.gguf` | 4,467,422,272 | 4.16 | `hypura.turboquant.weight.codec=tq4_1s`, 427 tensors, offset range valid |
+
+Runtime evidence uses the installed TheTom-capable llama.cpp binary:
+`llama-cli.exe --version` -> `9451 (68124bdbe)`, whose help lists
+`turbo2`, `turbo3`, and `turbo4` as legal `--cache-type-k` /
+`--cache-type-v` values. Because the RTX 3060 was busy during this run, the
+sweep used `-ngl 0`, `-c 128`, `-n 8`, and is a CPU/offload runtime smoke, not
+a CUDA throughput claim. The verbose logs do prove the cache policy, for
+example `K (q8_0)` with `V (turbo2)` and no `turbo*` K path.
+
+![ELT L=3 TheTom K-protected KV summary](_docs/assets/2026-05-17-l3-thetom-k-protected/gptimage_l3_thetom_k_protected_summary.png)
+
+| cache policy | ok / total | decode tok/s mean +/- SEM | KV MiB | delta vs `K=q8_0/V=q8_0` | p |
+|---|---:|---:|---:|---:|---:|
+| `K=f16_V=f16` | 2 / 2 | 1.21 +/- 0.27 | 8.00 | -0.75 | 0.6 |
+| `K=q8_0_V=q8_0` | 2 / 2 | 1.96 +/- 0.04 | 4.25 | baseline | baseline |
+| `K=q8_0_V=turbo2` | 2 / 2 | 1.84 +/- 0.07 | 2.86 | -0.12 | 0.6 |
+| `K=bf16_V=turbo2` | 2 / 2 | 2.12 +/- 0.95 | 4.73 | +0.16 | 1.0 |
+| `K=q8_0_V=turbo3` | 2 / 2 | 3.18 +/- 0.36 | 2.91 | +1.22 | 0.6 |
+| `K=bf16_V=turbo3` | 2 / 2 | 2.54 +/- 0.64 | 4.78 | +0.58 | 1.0 |
+| `K=q8_0_V=turbo4` | 2 / 2 | 2.59 +/- 0.23 | 3.19 | +0.63 | 0.6 |
+| `K=bf16_V=turbo4` | 1 / 2 | 4.21 +/- 0.00 | 5.06 | +2.29 | n/a |
+
+The paired p-values come from two repeated blocks where available, so they are
+descriptive smoke evidence rather than a strong significance claim. The one
+`bf16/turbo4` failure kept a partial log with KV allocation and one later
+successful generation; treat that policy as lower-confidence until rerun on an
+idle GPU. The strongest current runtime result is the policy boundary:
+K-protected TheTom V-cache execution is live for `L_max=3` GGUF, while looped
+ELT quality still requires a loop-aware Qwen3.5 runtime because the GGUF marks
+`elt.gguf.runtime_status=requires_looped_qwen35_runtime`.
+
+Artifacts:
+
+- `_docs/assets/2026-05-17-l3-thetom-k-protected/thetom_k_protected_kv_raw.csv`
+- `_docs/assets/2026-05-17-l3-thetom-k-protected/thetom_k_protected_kv_summary.csv`
+- `_docs/assets/2026-05-17-l3-thetom-k-protected/thetom_k_protected_kv_pairwise.csv`
+- `_docs/assets/2026-05-17-l3-thetom-k-protected/thetom_k_protected_kv_report.md`
+- `_docs/assets/2026-05-17-l3-thetom-k-protected/gptimage_l3_thetom_k_protected_summary.png`
+
+### 2026-05-17 L=3 LLM evidence gates
+
+The current `L_max=3` artifact also has the first README-worthy LLM quality
+gate with at least 128 cases, an external heldout slice, GPU-offload proof, and
+loop-aware quality measurement. The GGUF path below is Q8_0 on the installed
+TheTom-capable llama.cpp runtime with `--ngl 999`, `K=q8_0`, `V=turbo3`; the
+loop-aware path is the HF/PyTorch Qwen3.5 runtime because stock GGUF execution
+still marks `elt.gguf.runtime_status=requires_looped_qwen35_runtime`.
+
+![L3 Qwen3.5 ELT accuracy error bars](_docs/assets/2026-05-17-l3-thetom-k-protected/l3_readme_accuracy_errorbars.png)
+
+| evaluation | n | correct | accuracy | Wilson 95% CI | SEM | prompt tok/s | decode tok/s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Local STEM bridge | 128 | 121 | 94.5% | [89.1, 97.3] | 2.01% | 1241.74 | 50.02 |
+| MMLU-STEM heldout | 16 | 13 | 81.2% | [57.0, 93.4] | 9.76% | 1268.50 | 54.24 |
+| GSM8K heldout | 16 | 0 | 0.0% | [0.0, 19.4] | 0.00% | 1013.86 | 48.64 |
+
+Pairwise accuracy p-values use two-sided Fisher exact tests over
+`correct/incorrect` counts:
+
+| comparison | p |
+|---|---:|
+| Local STEM bridge vs MMLU-STEM heldout | 0.0835 |
+| Local STEM bridge vs GSM8K heldout | 3.56e-16 |
+| MMLU-STEM heldout vs GSM8K heldout | 3.22e-06 |
+
+Loop-aware quality uses paired case IDs on 32 local STEM bridge questions and
+scores multiple-choice log-probability, not free-form generation:
+
+| L | n | correct | accuracy | Wilson 95% CI | SEM | mean margin | wall sec/case |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 32 | 14 | 43.8% | [28.2, 60.7] | 8.77% | 0.0234 | 0.661 |
+| 2 | 32 | 18 | 56.2% | [39.3, 71.8] | 8.77% | 0.1445 | 1.225 |
+| 3 | 32 | 21 | 65.6% | [48.3, 79.6] | 8.40% | 0.3154 | 1.780 |
+
+Paired McNemar exact p-values over discordant cases:
+
+| comparison | improved | regressed | discordant | p |
+|---|---:|---:|---:|---:|
+| L1 vs L2 | 4 | 0 | 4 | 0.125 |
+| L1 vs L3 | 7 | 0 | 7 | 0.0156 |
+| L2 vs L3 | 3 | 0 | 3 | 0.25 |
+
+The supportable public claim is therefore narrow: the L=3 handoff is strong on
+the local STEM bridge task, MMLU-STEM is promising but a small cached slice, and
+loop depth helps in the loop-aware runtime. GSM8K is explicitly not solved
+(`0/16`), so this is not yet a broad mathematical reasoning or general LLM
+leaderboard claim.
+
+Artifacts:
+
+- `_docs/assets/2026-05-17-l3-thetom-k-protected/l3_readme_stats.json`
+- `_docs/assets/2026-05-17-l3-thetom-k-protected/l3_readme_stats.md`
+- `_docs/assets/2026-05-17-l3-thetom-k-protected/l3_readme_accuracy_errorbars.png`
 
 ## GGUF quantization CV report
 

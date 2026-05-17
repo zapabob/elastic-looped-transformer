@@ -1,0 +1,15 @@
+policy,baseline,metric,n,mean_delta,p_value,method
+K=f16_V=f16,K=q8_0_V=q8_0,gen_tok_s,2,-0.7450000000000001,0.6,paired permutation vs q8_0/q8_0
+K=f16_V=f16,K=q8_0_V=q8_0,kv_mib,2,3.75,0.6,paired permutation vs q8_0/q8_0
+K=q8_0_V=turbo2,K=q8_0_V=q8_0,gen_tok_s,2,-0.1200000000000001,0.6,paired permutation vs q8_0/q8_0
+K=q8_0_V=turbo2,K=q8_0_V=q8_0,kv_mib,2,-1.3900000000000001,0.6,paired permutation vs q8_0/q8_0
+K=bf16_V=turbo2,K=q8_0_V=q8_0,gen_tok_s,2,0.16000000000000014,1.0,paired permutation vs q8_0/q8_0
+K=bf16_V=turbo2,K=q8_0_V=q8_0,kv_mib,2,0.4800000000000004,0.6,paired permutation vs q8_0/q8_0
+K=q8_0_V=turbo3,K=q8_0_V=q8_0,gen_tok_s,2,1.2199999999999998,0.6,paired permutation vs q8_0/q8_0
+K=q8_0_V=turbo3,K=q8_0_V=q8_0,kv_mib,2,-1.3399999999999999,0.6,paired permutation vs q8_0/q8_0
+K=bf16_V=turbo3,K=q8_0_V=q8_0,gen_tok_s,2,0.5750000000000002,1.0,paired permutation vs q8_0/q8_0
+K=bf16_V=turbo3,K=q8_0_V=q8_0,kv_mib,2,0.5300000000000002,0.6,paired permutation vs q8_0/q8_0
+K=q8_0_V=turbo4,K=q8_0_V=q8_0,gen_tok_s,2,0.625,0.6,paired permutation vs q8_0/q8_0
+K=q8_0_V=turbo4,K=q8_0_V=q8_0,kv_mib,2,-1.06,0.6,paired permutation vs q8_0/q8_0
+K=bf16_V=turbo4,K=q8_0_V=q8_0,gen_tok_s,1,2.29,,single paired block
+K=bf16_V=turbo4,K=q8_0_V=q8_0,kv_mib,1,0.8099999999999996,,single paired block

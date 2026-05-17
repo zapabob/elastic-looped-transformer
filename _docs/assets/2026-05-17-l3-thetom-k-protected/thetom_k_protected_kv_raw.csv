@@ -1,0 +1,17 @@
+policy,cache_k,cache_v,k_protected,repetition,status,returncode,prompt_tok_s,gen_tok_s,kv_mib,wall_sec,log
+K=f16_V=f16,f16,f16,False,0,ok,,7.66,1.49,8.0,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=f16_V=f16_rep0.log
+K=f16_V=f16,f16,f16,False,1,ok,,6.19,0.94,8.0,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=f16_V=f16_rep1.log
+K=q8_0_V=q8_0,q8_0,q8_0,True,0,ok,,10.32,2.0,4.25,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=q8_0_rep0.log
+K=q8_0_V=q8_0,q8_0,q8_0,True,1,ok,,6.51,1.92,4.25,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=q8_0_rep1.log
+K=q8_0_V=turbo2,q8_0,turbo2,True,0,ok,,7.03,1.77,2.86,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=turbo2_rep0.log
+K=q8_0_V=turbo2,q8_0,turbo2,True,1,ok,,12.13,1.91,2.86,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=turbo2_rep1.log
+K=bf16_V=turbo2,bf16,turbo2,True,0,ok,,13.32,1.17,4.73,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo2_rep0.log
+K=bf16_V=turbo2,bf16,turbo2,True,1,ok,,11.97,3.07,4.73,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo2_rep1.log
+K=q8_0_V=turbo3,q8_0,turbo3,True,0,ok,,11.33,3.54,2.91,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=turbo3_rep0.log
+K=q8_0_V=turbo3,q8_0,turbo3,True,1,ok,,12.26,2.82,2.91,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=turbo3_rep1.log
+K=bf16_V=turbo3,bf16,turbo3,True,0,ok,,17.3,3.17,4.78,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo3_rep0.log
+K=bf16_V=turbo3,bf16,turbo3,True,1,ok,,9.27,1.9,4.78,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo3_rep1.log
+K=q8_0_V=turbo4,q8_0,turbo4,True,0,ok,,11.07,2.36,3.19,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=turbo4_rep0.log
+K=q8_0_V=turbo4,q8_0,turbo4,True,1,ok,,12.56,2.81,3.19,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=turbo4_rep1.log
+K=bf16_V=turbo4,bf16,turbo4,True,0,failed,,,,5.06,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo4_rep0.log
+K=bf16_V=turbo4,bf16,turbo4,True,1,ok,,19.38,4.21,5.06,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo4_rep1.log
