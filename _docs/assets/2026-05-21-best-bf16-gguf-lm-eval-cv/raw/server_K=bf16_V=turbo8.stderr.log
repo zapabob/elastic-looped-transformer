@@ -1,0 +1,11 @@
+error while handling argument "--cache-type-v": Unsupported cache type: turbo8
+
+usage:
+-ctv,  --cache-type-v TYPE              KV cache data type for V
+                                        allowed values: f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1,
+                                        turbo2, turbo3, turbo4
+                                        (default: f16)
+                                        (env: LLAMA_ARG_CACHE_TYPE_V)
+
+
+to show complete usage, run with -h

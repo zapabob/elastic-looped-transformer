@@ -482,6 +482,40 @@ Artifacts:
 - `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/gptimage2_lm_eval_gguf_kv_cv.png`
 - `_docs/assets/2026-05-21-goal-completion-audit/goal_completion_audit.md`
 
+### 2026-05-21 best BF16 GGUF headless lm-eval CV
+
+The BF16 release artifact
+`elt-lm-qwen35-side-stem-aha-ilsd-l3-BF16.gguf` has a direct headless
+`lm-eval-harness` K/V cache CV run over the same 128 external heldout cases
+used above. The run uses `llama-server --ngl 999` and compares four measured
+policies plus `turbo8` parser probes.
+
+![Best BF16 GGUF lm-eval K/V CV](_docs/assets/2026-05-21-best-bf16-gguf-lm-eval-cv/gptimage2_lm_eval_gguf_kv_cv.png)
+
+| BF16 GGUF policy | folds | accuracy mean +/- SEM | 95% CI | status |
+|---|---:|---:|---:|---|
+| `K=bf16,V=turbo3` | 8 | 0.5547 +/- 0.0662 | [0.4249, 0.6845] | selected BF16 policy |
+| `K=q8_0,V=turbo3` | 8 | 0.5547 +/- 0.0662 | [0.4249, 0.6845] | tied |
+| `K=bf16,V=turbo4` | 8 | 0.5469 +/- 0.0754 | [0.3991, 0.6947] | ok |
+| `K=q8_0,V=turbo4` | 8 | 0.5391 +/- 0.0708 | [0.4003, 0.6778] | ok after single-policy retry |
+| `K=bf16,V=turbo8` | 0 | n/a | n/a | unsupported cache type |
+| `K=q8_0,V=turbo8` | 0 | n/a | n/a | unsupported cache type |
+
+The selected BF16 serving policy is `K=bf16,V=turbo3`: it ties the best overall
+mean and preserves the BF16 K-cache path. Pairwise p-values among measured
+groups are all non-significant (`p >= 0.750973`), with Friedman p `0.943806`.
+MMLU-STEM ranges from `0.6875` to `0.7188`; GSM8K numeric-MCQ ranges from
+`0.3906` to `0.4062`. As above, GSM8K is a numeric multiple-choice transform,
+not standard exact-match generation, and stock GGUF serving is not native
+loop-aware `L>=2` quality.
+
+Artifacts:
+
+- `_docs/assets/2026-05-21-best-bf16-gguf-lm-eval-cv/best_bf16_selection.md`
+- `_docs/assets/2026-05-21-best-bf16-gguf-lm-eval-cv/lm_eval_gguf_kv_cv_report.md`
+- `_docs/assets/2026-05-21-best-bf16-gguf-lm-eval-cv/lm_eval_gguf_kv_cv_report.json`
+- `_docs/assets/2026-05-21-best-bf16-gguf-lm-eval-cv/gptimage2_lm_eval_gguf_kv_cv.png`
+
 ### 2026-05-17 L=3 LLM evidence gates
 
 The current `L_max=3` artifact also has the first README-worthy LLM quality

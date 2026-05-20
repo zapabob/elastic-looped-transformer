@@ -1,0 +1,47 @@
+{
+  "date": "2026-05-21",
+  "selected_model": "elt-lm-qwen35-side-stem-aha-ilsd-l3-BF16.gguf",
+  "selected_policy": "K=bf16_V=turbo3",
+  "selection_status": "best_tied_overall_mean_selected_for_bf16_cache_policy",
+  "task": "elt_external_heldout_letter_cv",
+  "cases": 128,
+  "folds": 8,
+  "benchmarks": [
+    "mmlu_stem",
+    "gsm8k_numeric_mcq"
+  ],
+  "runtime": {
+    "server": "llama-server.exe",
+    "ngl": 999,
+    "headless": true
+  },
+  "selected_summary": {
+    "mean": 0.5546875,
+    "sem": 0.06622546294261962,
+    "ci95_low": 0.42488559263246556,
+    "ci95_high": 0.6844894073675345
+  },
+  "tie": [
+    "K=bf16_V=turbo3",
+    "K=q8_0_V=turbo3"
+  ],
+  "omnibus": {
+    "method": "friedman_within_block_permutation_10000",
+    "p_value": 0.9438056194380562,
+    "statistic": 0.48749999999999716,
+    "n_blocks": 8
+  },
+  "claim_boundaries": [
+    "turbo8 is unsupported by the installed llama.cpp runtime.",
+    "GSM8K rows are numeric-MCQ transforms, not standard exact-match generation.",
+    "This is a stock GGUF serving-surface evaluation, not native loop-aware GGUF quality."
+  ],
+  "artifacts": [
+    "lm_eval_gguf_kv_cv_report.md",
+    "lm_eval_gguf_kv_cv_report.json",
+    "lm_eval_gguf_kv_cv_summary.csv",
+    "lm_eval_gguf_kv_cv_pairwise.csv",
+    "lm_eval_gguf_kv_cv_rows.csv",
+    "gptimage2_lm_eval_gguf_kv_cv.png"
+  ]
+}

@@ -1,0 +1,14 @@
+0.00.076.379 I log_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.076.396 I device_info:
+0.00.174.547 I   - CUDA0   : NVIDIA GeForce RTX 3060 (12287 MiB, 11250 MiB free)
+0.00.174.609 I   - CPU     : AMD Ryzen 5 4500 6-Core Processor               (32639 MiB, 8596 MiB free)
+0.00.174.682 I system_info: n_threads = 6 (n_threads_batch = 6) / 12 | CUDA : ARCHS = 860 | USE_GRAPHS = 1 | PEER_MAX_BATCH_SIZE = 128 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 |
+0.00.174.723 I srv          init: running without SSL
+0.00.174.753 I srv          init: using 11 threads for HTTP server
+0.00.174.755 I srv          init: The UI is disabled
+0.00.174.755 I srv          init: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.174.901 I srv         start: binding port with default address family
+0.00.179.724 I srv          main: loading model
+0.00.179.765 I srv    load_model: loading model 'H:\elt_data\hf_publish\qwen3.5-elt-l3\elt-lm-qwen35-side-stem-aha-ilsd-l3-BF16.gguf'
+0.00.180.009 I common_init_result: fitting params to device memory ...
+0.00.180.010 I common_init_result: (for bugs during this step try to reproduce them with -fit off, or provide --verbose logs if the bug only occurs with -fit on)
