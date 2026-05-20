@@ -1,0 +1,7 @@
+policy,total,ok,failed,timeout,decode_mean,decode_sem,kv_mib,delta_vs_q8_q8,p_value,unsupported_reason
+K=q8_0_V=turbo3,2,2,0,0,3.1799999999999997,0.36000000000000004,2.91,1.2199999999999998,0.6,
+K=bf16_V=turbo3,2,2,0,0,2.535,0.6349999999999999,4.78,0.5750000000000002,1.0,
+K=q8_0_V=turbo4,2,2,0,0,2.585,0.2250000000000001,3.19,0.625,0.6,
+K=bf16_V=turbo4,2,1,1,0,4.21,0.0,5.06,2.29,,
+K=q8_0_V=turbo8,2,0,2,0,,,,,,"error while handling argument ""--cache-type-v"": Unsupported cache type: turbo8"
+K=bf16_V=turbo8,2,0,2,0,,,,,,"error while handling argument ""--cache-type-v"": Unsupported cache type: turbo8"

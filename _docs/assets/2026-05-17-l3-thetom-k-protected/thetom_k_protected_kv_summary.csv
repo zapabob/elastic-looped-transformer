@@ -31,3 +31,11 @@ K=bf16_V=turbo4,prompt_tok_s,1,19.38,0.0,0.0,19.38,19.38
 K=bf16_V=turbo4,gen_tok_s,1,4.21,0.0,0.0,4.21,4.21
 K=bf16_V=turbo4,kv_mib,1,5.06,0.0,0.0,5.06,5.06
 K=bf16_V=turbo4,wall_sec,0,nan,nan,nan,nan,nan
+K=q8_0_V=turbo8,prompt_tok_s,0,nan,nan,nan,nan,nan
+K=q8_0_V=turbo8,gen_tok_s,0,nan,nan,nan,nan,nan
+K=q8_0_V=turbo8,kv_mib,0,nan,nan,nan,nan,nan
+K=q8_0_V=turbo8,wall_sec,0,nan,nan,nan,nan,nan
+K=bf16_V=turbo8,prompt_tok_s,0,nan,nan,nan,nan,nan
+K=bf16_V=turbo8,gen_tok_s,0,nan,nan,nan,nan,nan
+K=bf16_V=turbo8,kv_mib,0,nan,nan,nan,nan,nan
+K=bf16_V=turbo8,wall_sec,0,nan,nan,nan,nan,nan

@@ -1,0 +1,73 @@
+{
+  "benchmark": "loop_aware_l123_stem_bridge_mcq_logprob",
+  "n_groups": 3,
+  "n_blocks": 32,
+  "summaries": [
+    {
+      "name": "L1",
+      "n": 32,
+      "mean": 0.4375,
+      "std": 0.5040161287741853,
+      "sem": 0.08909830562090465,
+      "ci95_low": 0.2628673209830269,
+      "ci95_high": 0.6121326790169731
+    },
+    {
+      "name": "L2",
+      "n": 32,
+      "mean": 0.5625,
+      "std": 0.5040161287741853,
+      "sem": 0.08909830562090465,
+      "ci95_low": 0.3878673209830269,
+      "ci95_high": 0.7371326790169731
+    },
+    {
+      "name": "L3",
+      "n": 32,
+      "mean": 0.65625,
+      "std": 0.4825587044348143,
+      "sem": 0.08530513305661303,
+      "ci95_low": 0.48905193920903844,
+      "ci95_high": 0.8234480607909616
+    }
+  ],
+  "pairwise": [
+    {
+      "left": "L1",
+      "right": "L2",
+      "mean_delta": -0.125,
+      "p_value": 0.12248775122487751,
+      "method": "paired_permutation_10000"
+    },
+    {
+      "left": "L1",
+      "right": "L3",
+      "mean_delta": -0.21875,
+      "p_value": 0.0160983901609839,
+      "method": "paired_permutation_10000"
+    },
+    {
+      "left": "L2",
+      "right": "L3",
+      "mean_delta": -0.09375,
+      "p_value": 0.25477452254774524,
+      "method": "paired_permutation_10000"
+    }
+  ],
+  "omnibus": {
+    "groups": [
+      "L1",
+      "L2",
+      "L3"
+    ],
+    "n_blocks": 32,
+    "statistic": 1.734375,
+    "p_value": 0.0024997500249975004,
+    "method": "friedman_within_block_permutation_10000"
+  },
+  "notes": [
+    "Scores are paired by row/fold index across groups.",
+    "p_value fields use deterministic within-pair/block permutation tests."
+  ],
+  "source": "_docs\\assets\\2026-05-17-l3-thetom-k-protected\\loop_aware_l3\\loop_aware_l123_logprob32_stem_bridge.json"
+}

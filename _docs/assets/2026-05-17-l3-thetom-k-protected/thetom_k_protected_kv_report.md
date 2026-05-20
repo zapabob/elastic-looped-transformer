@@ -14,6 +14,8 @@ K is held at `q8_0` or `bf16`; only V is swept into TheTom `turbo*` cache types.
 | `K=bf16_V=turbo3` | 2 | 2 | 0 | 0 |
 | `K=q8_0_V=turbo4` | 2 | 2 | 0 | 0 |
 | `K=bf16_V=turbo4` | 2 | 1 | 1 | 0 |
+| `K=q8_0_V=turbo8` | 2 | 0 | 2 | 0 |
+| `K=bf16_V=turbo8` | 2 | 0 | 2 | 0 |
 
 ## Summary
 

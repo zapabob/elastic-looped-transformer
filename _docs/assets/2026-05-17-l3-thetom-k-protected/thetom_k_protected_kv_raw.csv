@@ -15,3 +15,7 @@ K=q8_0_V=turbo4,q8_0,turbo4,True,0,ok,,11.07,2.36,3.19,,_docs\assets\2026-05-17-
 K=q8_0_V=turbo4,q8_0,turbo4,True,1,ok,,12.56,2.81,3.19,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=turbo4_rep1.log
 K=bf16_V=turbo4,bf16,turbo4,True,0,failed,,,,5.06,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo4_rep0.log
 K=bf16_V=turbo4,bf16,turbo4,True,1,ok,,19.38,4.21,5.06,,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo4_rep1.log
+K=q8_0_V=turbo8,q8_0,turbo8,True,0,failed,1,,,,1.6963511999929324,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=turbo8_rep0.log
+K=q8_0_V=turbo8,q8_0,turbo8,True,1,failed,1,,,,1.3016004000091925,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=q8_0_V=turbo8_rep1.log
+K=bf16_V=turbo8,bf16,turbo8,True,0,failed,1,,,,1.1138437000045087,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo8_rep0.log
+K=bf16_V=turbo8,bf16,turbo8,True,1,failed,1,,,,1.50194349999947,_docs\assets\2026-05-17-l3-thetom-k-protected\raw\cli_K=bf16_V=turbo8_rep1.log

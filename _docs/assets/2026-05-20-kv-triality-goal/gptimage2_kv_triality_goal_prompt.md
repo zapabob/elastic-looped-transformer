@@ -1,0 +1,1 @@
+Create a clean AI-engineering benchmark dashboard for Qwen3.5 ELT showing K-protected KV cache results, Triality SO(8) orthogonality/determinant gates, self-distillation entropy monitoring, and loop-aware CV p-values. Mark Turbo8 as unsupported by the installed runtime.

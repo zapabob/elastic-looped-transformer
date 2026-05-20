@@ -352,10 +352,13 @@ artifacts plus a TheTom runtime KV smoke sweep. The sweep protects K by keeping
 Runtime evidence uses the installed TheTom-capable llama.cpp binary:
 `llama-cli.exe --version` -> `9451 (68124bdbe)`, whose help lists
 `turbo2`, `turbo3`, and `turbo4` as legal `--cache-type-k` /
-`--cache-type-v` values. Because the RTX 3060 was busy during this run, the
-sweep used `-ngl 0`, `-c 128`, `-n 8`, and is a CPU/offload runtime smoke, not
-a CUDA throughput claim. The verbose logs do prove the cache policy, for
-example `K (q8_0)` with `V (turbo2)` and no `turbo*` K path.
+`--cache-type-v` values. A 2026-05-20 parser probe also requested `turbo8`;
+the installed runtime rejected it as `Unsupported cache type: turbo8`, so
+Turbo8 is reported as an unsupported runtime value rather than as a throughput
+or quality result. Because the RTX 3060 was busy during this run, the sweep used
+`-ngl 0`, `-c 128`, `-n 8`, and is a CPU/offload runtime smoke, not a CUDA
+throughput claim. The verbose logs do prove the cache policy, for example
+`K (q8_0)` with `V (turbo2)` and no `turbo*` K path.
 
 ![ELT L=3 TheTom K-protected KV summary](_docs/assets/2026-05-17-l3-thetom-k-protected/gptimage_l3_thetom_k_protected_summary.png)
 
@@ -369,6 +372,8 @@ example `K (q8_0)` with `V (turbo2)` and no `turbo*` K path.
 | `K=bf16_V=turbo3` | 2 / 2 | 2.54 +/- 0.64 | 4.78 | +0.58 | 1.0 |
 | `K=q8_0_V=turbo4` | 2 / 2 | 2.59 +/- 0.23 | 3.19 | +0.63 | 0.6 |
 | `K=bf16_V=turbo4` | 1 / 2 | 4.21 +/- 0.00 | 5.06 | +2.29 | n/a |
+| `K=q8_0_V=turbo8` | 0 / 2 | unsupported | n/a | n/a | n/a |
+| `K=bf16_V=turbo8` | 0 / 2 | unsupported | n/a | n/a | n/a |
 
 The paired p-values come from two repeated blocks where available, so they are
 descriptive smoke evidence rather than a strong significance claim. The one
@@ -386,6 +391,56 @@ Artifacts:
 - `_docs/assets/2026-05-17-l3-thetom-k-protected/thetom_k_protected_kv_pairwise.csv`
 - `_docs/assets/2026-05-17-l3-thetom-k-protected/thetom_k_protected_kv_report.md`
 - `_docs/assets/2026-05-17-l3-thetom-k-protected/gptimage_l3_thetom_k_protected_summary.png`
+
+### 2026-05-20 KV/Triality/entropy evidence bundle
+
+The latest publication-facing bundle joins the K-protected KV sweep with the
+Turboquant-CUDA Triality SO(8) rotation audit, ILSD self-distillation telemetry,
+and paired loop-aware CV statistics. It is meant for AI-engineering review: the
+plot highlights error bars and p-values, while unsupported `turbo8` remains
+visibly separate from the working `turbo3`/`turbo4` paths.
+
+![Qwen3.5 ELT KV Triality entropy CV dashboard](_docs/assets/2026-05-20-kv-triality-goal/gptimage2_kv_triality_goal_dashboard.png)
+
+Triality SO(8) vector-view audit, copied from the Turboquant-CUDA production
+manifest, passed all `4608` audited rows with `0` outliers at the `0.01`
+orthogonality/determinant gate:
+
+| V bit target | max orth err | mean det | max det err | status |
+|---:|---:|---:|---:|---|
+| 3 | 4.870e-03 | 1.000145130 | 7.628e-03 | pass |
+| 4 | 4.754e-03 | 1.000145894 | 6.427e-03 | pass |
+| 8 | 6.269e-03 | 1.000028411 | 7.111e-03 | pass |
+
+ILSD monitoring found no non-finite loss, distance, or entropy values in the
+current L2/L3 side-LoRA runs. The L3 runs are deliberately flagged as a stability
+watch surface because max `L_dist` rises to `9.128` (code), `8.832` (math),
+`9.233` (stem), and `11.343` (tool), while final `L_entropy` stays small
+(`0.000` to `0.008`). This supports "monitoring is in place"; it is not a broad
+convergence guarantee.
+
+Loop-aware paired CV over 32 local STEM bridge cases reports mean +/- SEM:
+
+| group | n | accuracy | SEM | 95% CI |
+|---|---:|---:|---:|---:|
+| L1 | 32 | 0.4375 | 0.0891 | [0.2629, 0.6121] |
+| L2 | 32 | 0.5625 | 0.0891 | [0.3879, 0.7371] |
+| L3 | 32 | 0.6562 | 0.0853 | [0.4891, 0.8234] |
+
+Paired permutation p-values are `0.122488` for L1-L2, `0.016098` for L1-L3,
+and `0.254775` for L2-L3; the within-block Friedman permutation p-value is
+`0.002500`. The repo `uv` environment cannot import `lm_eval`; a global
+`lm-eval` CLI is visible on this machine, but no broad logged
+lm-eval-harness run is included in this bundle. Therefore these are local
+bridge/external-heldout statistics, not lm-eval leaderboard results.
+
+Artifacts:
+
+- `_docs/assets/2026-05-20-kv-triality-goal/kv_triality_goal_report.md`
+- `_docs/assets/2026-05-20-kv-triality-goal/kv_triality_goal_report.json`
+- `_docs/assets/2026-05-20-kv-triality-goal/gptimage2_kv_triality_goal_dashboard.png`
+- `_docs/assets/2026-05-20-kv-triality-goal/loop_aware_l123_cv_stats.json`
+- `_docs/assets/2026-05-20-kv-triality-goal/triality_so8_rotation_audit_summary.csv`
 
 ### 2026-05-17 L=3 LLM evidence gates
 

@@ -1,0 +1,9 @@
+run,lane,surface,L_max,steps,last_step,tail_loss_mean,last_l_dist,max_l_dist,last_l_entropy,max_l_entropy,nonfinite_detected,path
+qwen35_4b_side_lora_code_aha_ilsd_l2,code,code/L2,2,48,235,1.3856816440820694,1.710741400718689,2.363197088241577,0.00067901611328125,0.1435546875,False,H:\elt_data\runs\qwen35_4b_side_lora_code_aha_ilsd_l2\metrics.jsonl
+qwen35_4b_side_lora_code_aha_ilsd_l3,code,code/L3,3,32,155,7.0184954643249515,8.50228500366211,9.127641677856445,0.0,0.07763671875,False,H:\elt_data\runs\qwen35_4b_side_lora_code_aha_ilsd_l3\metrics.jsonl
+qwen35_4b_side_lora_math_aha_ilsd_l2,math,math/L2,2,48,235,1.6591418862342835,2.2459876537323,2.2459876537323,0.0,0.010986328125,False,H:\elt_data\runs\qwen35_4b_side_lora_math_aha_ilsd_l2\metrics.jsonl
+qwen35_4b_side_lora_math_aha_ilsd_l3,math,math/L3,3,16,75,7.216272699832916,7.2220540046691895,8.831573486328125,0.0011749267578125,0.004425048828125,False,H:\elt_data\runs\qwen35_4b_side_lora_math_aha_ilsd_l3\metrics.jsonl
+qwen35_4b_side_lora_stem_aha_ilsd_l2,stem,stem/L2,2,48,235,1.4262474671006202,1.5407596826553345,2.2923645973205566,0.0,0.03466796875,False,H:\elt_data\runs\qwen35_4b_side_lora_stem_aha_ilsd_l2\metrics.jsonl
+qwen35_4b_side_lora_stem_aha_ilsd_l3,stem,stem/L3,3,16,75,7.476175123453141,9.23318099975586,9.23318099975586,0.0063018798828125,0.01470947265625,False,H:\elt_data\runs\qwen35_4b_side_lora_stem_aha_ilsd_l3\metrics.jsonl
+qwen35_4b_side_lora_tool_aha_ilsd_l2,tool,tool/L2,2,48,235,1.412744688987732,1.692396640777588,2.0920608043670654,0.0,0.013427734375,False,H:\elt_data\runs\qwen35_4b_side_lora_tool_aha_ilsd_l2\metrics.jsonl
+qwen35_4b_side_lora_tool_aha_ilsd_l3,tool,tool/L3,3,16,75,9.068306696414947,11.342721939086914,11.342721939086914,0.0077972412109375,0.010009765625,False,H:\elt_data\runs\qwen35_4b_side_lora_tool_aha_ilsd_l3\metrics.jsonl
