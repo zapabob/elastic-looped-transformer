@@ -480,6 +480,7 @@ Artifacts:
 - `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/lm_eval_gguf_kv_cv_report.md`
 - `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/lm_eval_gguf_kv_cv_report.json`
 - `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/gptimage2_lm_eval_gguf_kv_cv.png`
+- `_docs/assets/2026-05-21-goal-completion-audit/goal_completion_audit.md`
 
 ### 2026-05-17 L=3 LLM evidence gates
 

@@ -1,0 +1,79 @@
+{
+  "date": "2026-05-21",
+  "status": "complete_with_claim_boundaries",
+  "github": {
+    "branch": "main",
+    "commit": "1e08979",
+    "message": "Add 128-case lm-eval KV CV evidence"
+  },
+  "hugging_face": {
+    "repo": "zapabobouj/qwen3.5-elt-l3",
+    "uploaded_eval_bundle": true,
+    "readback_verified": true,
+    "sha_note": "Hub SHA changes when the audit files are refreshed; use release logs for the final readback SHA."
+  },
+  "requirements": [
+    {
+      "name": "K bf16/q8_0 with V turbo3/turbo4/turbo8",
+      "status": "complete_with_unsupported_turbo8_boundary",
+      "evidence": "_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/lm_eval_gguf_kv_cv_report.md",
+      "notes": [
+        "K=q8_0/bf16 with V=turbo3/turbo4 measured across 128 cases and 8 folds.",
+        "turbo8 was probed and rejected by llama.cpp as Unsupported cache type: turbo8."
+      ]
+    },
+    {
+      "name": "Triality orthogonality and determinant stability",
+      "status": "complete",
+      "evidence": "_docs/assets/2026-05-20-kv-triality-goal/kv_triality_goal_report.md",
+      "rows": 4608,
+      "outliers": 0,
+      "max_orthogonality_error": 0.00626921933144331,
+      "max_determinant_error": 0.007627688779800024,
+      "gate_atol": 0.01
+    },
+    {
+      "name": "Divergence prevention and self-distillation entropy monitoring",
+      "status": "complete_as_monitoring_evidence",
+      "evidence": "_docs/assets/2026-05-20-kv-triality-goal/kv_triality_goal_report.md",
+      "nonfinite_detected": false,
+      "notes": [
+        "L2/L3 ILSD metrics were scanned for loss, distance, and entropy non-finites.",
+        "L3 distance remains a watch surface and is not framed as a convergence guarantee."
+      ]
+    },
+    {
+      "name": "GGUF release artifacts",
+      "status": "complete_with_naming_boundary",
+      "artifacts": [
+        "elt-lm-qwen35-side-stem-aha-ilsd-l3-BF16.gguf",
+        "elt-lm-qwen35-side-stem-aha-ilsd-l3-Q8_0.gguf",
+        "elt-lm-qwen35-side-stem-aha-ilsd-l3-TQ4_1S.gguf"
+      ],
+      "notes": [
+        "turbo3 is a KV-cache runtime policy in this stack, not a standalone GGUF weight file type."
+      ]
+    },
+    {
+      "name": "gptimage2-style figures",
+      "status": "complete",
+      "artifacts": [
+        "_docs/assets/2026-05-20-kv-triality-goal/gptimage2_kv_triality_goal_dashboard.png",
+        "_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/gptimage2_lm_eval_gguf_kv_cv.png"
+      ]
+    },
+    {
+      "name": "README summary stats, error bars, p-values, lm-eval CV",
+      "status": "complete",
+      "evidence": "README.md",
+      "lm_eval_cases": 128,
+      "lm_eval_folds": 8,
+      "omnibus_p": 0.781021897810219
+    }
+  ],
+  "claim_boundaries": [
+    "turbo8 is unsupported in the installed llama.cpp runtime and is therefore an unsupported parser probe, not a quality or throughput datapoint.",
+    "GSM8K evidence is numeric-MCQ and not standard exact-match generation.",
+    "Native loop-aware GGUF L>=2 quality remains blocked by stock runtime support; loop-aware quality evidence is PyTorch/HF runtime based."
+  ]
+}

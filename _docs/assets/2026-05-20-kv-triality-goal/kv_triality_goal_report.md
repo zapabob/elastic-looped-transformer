@@ -1,5 +1,12 @@
 # 2026-05-20 KV/Triality evidence bundle
 
+Supersession note: the original bundle was generated before the logged
+`lm-eval-harness` run was available in this repo environment. The current
+128-case MMLU-STEM plus GSM8K numeric-MCQ K/V CV gate is now recorded at
+`_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/lm_eval_gguf_kv_cv_report.md`;
+the lm-eval status section below is retained as historical provenance for this
+bundle's first generation pass.
+
 ## K-protected TurboQuant KV sweep
 
 | policy | ok / total | decode tok/s mean +/- SEM | KV MiB | delta vs K=q8_0/V=q8_0 | p | status note |
@@ -50,7 +57,7 @@ Audit status: `pass`; rows audited: `4608`; outliers: `0`.
 
 Friedman within-block permutation p: `0.002500` (statistic `1.7344`, n=32).
 
-## lm-eval-harness status
+## lm-eval-harness status at original bundle generation
 
 - Python module available: `False`
 - CLI available: `True` (`lm-eval.EXE`)
@@ -58,3 +65,8 @@ Friedman within-block permutation p: `0.002500` (statistic `1.7344`, n=32).
 A global lm-eval CLI is visible, but this repo's Python environment cannot import lm_eval; no broad logged lm-eval run is included in this bundle.
 
 The current numbers are local bridge/external-heldout evidence. Broad lm-eval-harness leaderboard claims remain blocked until the same paired task set is completed under lm-eval with logged samples.
+
+Current superseding evidence: the 2026-05-20 128-case `lm-eval-harness`
+serving-surface report adds logged samples, fold summaries, pairwise p-values,
+and a gptimage2-style chart for `K=q8_0/bf16` with `V=turbo3/turbo4`; `turbo8`
+remains an unsupported runtime parser value in the installed llama.cpp build.
