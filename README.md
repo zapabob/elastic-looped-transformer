@@ -429,10 +429,30 @@ Loop-aware paired CV over 32 local STEM bridge cases reports mean +/- SEM:
 
 Paired permutation p-values are `0.122488` for L1-L2, `0.016098` for L1-L3,
 and `0.254775` for L2-L3; the within-block Friedman permutation p-value is
-`0.002500`. The repo `uv` environment cannot import `lm_eval`; a global
-`lm-eval` CLI is visible on this machine, but no broad logged
-lm-eval-harness run is included in this bundle. Therefore these are local
-bridge/external-heldout statistics, not lm-eval leaderboard results.
+`0.002500`.
+
+A narrow logged `lm-eval-harness` serving-surface gate now runs the same
+external MMLU-STEM heldout slice through the Q8_0 GGUF with `llama-server
+--ngl 999`, using the harness evaluator plus a local `/completion` log-prob
+adapter because this installed server exposes the newer llama.cpp logprob
+schema. This is still a small CV gate, not a broad leaderboard result.
+
+![lm-eval GGUF K/V CV error bars](_docs/assets/2026-05-20-lm-eval-gguf-kv-cv/gptimage2_lm_eval_gguf_kv_cv.png)
+
+| K/V policy | folds | accuracy mean +/- SEM | 95% CI | status |
+|---|---:|---:|---:|---|
+| K=q8_0, V=turbo3 | 4 | 0.6250 +/- 0.1614 | [0.3087, 0.9413] | ok |
+| K=bf16, V=turbo3 | 4 | 0.6250 +/- 0.1614 | [0.3087, 0.9413] | ok |
+| K=q8_0, V=turbo4 | 4 | 0.6250 +/- 0.1614 | [0.3087, 0.9413] | ok |
+| K=bf16, V=turbo4 | 4 | 0.6250 +/- 0.1614 | [0.3087, 0.9413] | ok |
+| K=q8_0, V=turbo8 | 0 | n/a | n/a | unsupported cache type |
+| K=bf16, V=turbo8 | 0 | n/a | n/a | unsupported cache type |
+
+All measured `turbo3`/`turbo4` policies produce the same 16-case predictions;
+paired within-fold permutation p-values are therefore `1.000000` for every
+measured pair, and the Friedman within-fold permutation p-value is `1.000000`
+over four folds. `turbo8` is only a parser/runtime-support probe in this
+installed llama.cpp build (`Unsupported cache type: turbo8`).
 
 Artifacts:
 
@@ -441,6 +461,9 @@ Artifacts:
 - `_docs/assets/2026-05-20-kv-triality-goal/gptimage2_kv_triality_goal_dashboard.png`
 - `_docs/assets/2026-05-20-kv-triality-goal/loop_aware_l123_cv_stats.json`
 - `_docs/assets/2026-05-20-kv-triality-goal/triality_so8_rotation_audit_summary.csv`
+- `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv/lm_eval_gguf_kv_cv_report.md`
+- `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv/lm_eval_gguf_kv_cv_report.json`
+- `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv/gptimage2_lm_eval_gguf_kv_cv.png`
 
 ### 2026-05-17 L=3 LLM evidence gates
 

@@ -1,0 +1,7 @@
+left,right,mean_delta,p_value,method
+K=q8_0_V=turbo3,K=bf16_V=turbo3,0.0,1.0,paired_permutation_10000
+K=q8_0_V=turbo3,K=q8_0_V=turbo4,0.0,1.0,paired_permutation_10000
+K=q8_0_V=turbo3,K=bf16_V=turbo4,0.0,1.0,paired_permutation_10000
+K=bf16_V=turbo3,K=q8_0_V=turbo4,0.0,1.0,paired_permutation_10000
+K=bf16_V=turbo3,K=bf16_V=turbo4,0.0,1.0,paired_permutation_10000
+K=q8_0_V=turbo4,K=bf16_V=turbo4,0.0,1.0,paired_permutation_10000
