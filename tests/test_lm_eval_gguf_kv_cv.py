@@ -59,6 +59,33 @@ def test_build_lm_eval_rows_creates_letter_choice_cv_rows(tmp_path: Path) -> Non
     assert rows[0]["prompt"].endswith("\n\nAnswer:")
 
 
+def test_build_lm_eval_rows_converts_gsm8k_to_numeric_mcq(tmp_path: Path) -> None:
+    script = _load_script()
+    source = tmp_path / "gsm8k.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "prompt": "Solve it.\n\nQuestion:\nA pack has 40 cards. Kim gives away 18. How many remain?",
+                "reference": "Kim has 40 - 18 = 22 cards.\n#### 22",
+                "task": "gsm8k",
+                "source": "hf:gsm8k/main/test",
+                "metadata": {"task_name": "gsm8k", "benchmark": "gsm8k"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rows = script.build_lm_eval_rows(source, folds=4)
+
+    assert len(rows) == 1
+    assert rows[0]["benchmark"] == "gsm8k_numeric_mcq"
+    assert rows[0]["choices"] == [" A", " B", " C", " D"]
+    assert rows[0]["choice_values"][rows[0]["target"]] == "22"
+    assert "Choices:" in rows[0]["prompt"]
+    assert rows[0]["prompt"].endswith("\n\nAnswer:")
+
+
 def test_find_label_logprob_accepts_spaced_and_unspaced_tokens() -> None:
     script = _load_script()
     top = [
@@ -113,3 +140,23 @@ def test_compare_policies_keeps_fold_pairing_for_p_values() -> None:
     assert comparison["pairwise"][0]["left"] == "K=q8_0_V=turbo3"
     assert comparison["pairwise"][0]["right"] == "K=bf16_V=turbo3"
     assert 0.0 <= comparison["pairwise"][0]["p_value"] <= 1.0
+
+
+def test_compare_policies_by_benchmark_slices_rows() -> None:
+    script = _load_script()
+    rows = [
+        {"policy": "K=q8_0_V=turbo3", "fold": 0, "correct": 1, "benchmark": "mmlu_stem"},
+        {"policy": "K=q8_0_V=turbo3", "fold": 1, "correct": 0, "benchmark": "mmlu_stem"},
+        {"policy": "K=bf16_V=turbo3", "fold": 0, "correct": 1, "benchmark": "mmlu_stem"},
+        {"policy": "K=bf16_V=turbo3", "fold": 1, "correct": 1, "benchmark": "mmlu_stem"},
+        {"policy": "K=q8_0_V=turbo3", "fold": 0, "correct": 0, "benchmark": "gsm8k_numeric_mcq"},
+        {"policy": "K=q8_0_V=turbo3", "fold": 1, "correct": 0, "benchmark": "gsm8k_numeric_mcq"},
+        {"policy": "K=bf16_V=turbo3", "fold": 0, "correct": 0, "benchmark": "gsm8k_numeric_mcq"},
+        {"policy": "K=bf16_V=turbo3", "fold": 1, "correct": 1, "benchmark": "gsm8k_numeric_mcq"},
+    ]
+
+    by_benchmark = script.compare_policies_by_group(rows, folds=2, group_key="benchmark")
+
+    assert sorted(by_benchmark) == ["gsm8k_numeric_mcq", "mmlu_stem"]
+    assert by_benchmark["mmlu_stem"]["summaries"][0]["mean"] == 0.5
+    assert by_benchmark["gsm8k_numeric_mcq"]["summaries"][0]["mean"] == 0.0

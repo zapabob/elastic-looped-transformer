@@ -431,27 +431,40 @@ Paired permutation p-values are `0.122488` for L1-L2, `0.016098` for L1-L3,
 and `0.254775` for L2-L3; the within-block Friedman permutation p-value is
 `0.002500`.
 
-A narrow logged `lm-eval-harness` serving-surface gate now runs the same
-external MMLU-STEM heldout slice through the Q8_0 GGUF with `llama-server
---ngl 999`, using the harness evaluator plus a local `/completion` log-prob
-adapter because this installed server exposes the newer llama.cpp logprob
-schema. This is still a small CV gate, not a broad leaderboard result.
+A logged `lm-eval-harness` serving-surface gate now covers `128` external
+heldout cases: `64` native MMLU-STEM MCQ rows plus `64` GSM8K test rows
+converted into numeric multiple-choice questions. It runs the Q8_0 GGUF with
+`llama-server --ngl 999`, using the harness evaluator plus a local
+`/completion` log-prob adapter because this installed server exposes the newer
+llama.cpp logprob schema. This is a larger CV gate, not a broad leaderboard
+result or standard GSM8K exact-match claim.
 
-![lm-eval GGUF K/V CV error bars](_docs/assets/2026-05-20-lm-eval-gguf-kv-cv/gptimage2_lm_eval_gguf_kv_cv.png)
+![lm-eval GGUF K/V CV error bars](_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/gptimage2_lm_eval_gguf_kv_cv.png)
 
 | K/V policy | folds | accuracy mean +/- SEM | 95% CI | status |
 |---|---:|---:|---:|---|
-| K=q8_0, V=turbo3 | 4 | 0.6250 +/- 0.1614 | [0.3087, 0.9413] | ok |
-| K=bf16, V=turbo3 | 4 | 0.6250 +/- 0.1614 | [0.3087, 0.9413] | ok |
-| K=q8_0, V=turbo4 | 4 | 0.6250 +/- 0.1614 | [0.3087, 0.9413] | ok |
-| K=bf16, V=turbo4 | 4 | 0.6250 +/- 0.1614 | [0.3087, 0.9413] | ok |
+| K=q8_0, V=turbo3 | 8 | 0.5547 +/- 0.0630 | [0.4312, 0.6781] | ok |
+| K=bf16, V=turbo3 | 8 | 0.5625 +/- 0.0765 | [0.4125, 0.7125] | ok |
+| K=q8_0, V=turbo4 | 8 | 0.5469 +/- 0.0763 | [0.3973, 0.6965] | ok |
+| K=bf16, V=turbo4 | 8 | 0.5469 +/- 0.0763 | [0.3973, 0.6965] | ok |
 | K=q8_0, V=turbo8 | 0 | n/a | n/a | unsupported cache type |
 | K=bf16, V=turbo8 | 0 | n/a | n/a | unsupported cache type |
 
-All measured `turbo3`/`turbo4` policies produce the same 16-case predictions;
-paired within-fold permutation p-values are therefore `1.000000` for every
-measured pair, and the Friedman within-fold permutation p-value is `1.000000`
-over four folds. `turbo8` is only a parser/runtime-support probe in this
+Paired within-fold permutation p-values over the measured policies are:
+
+| comparison | mean delta | p |
+|---|---:|---:|
+| K=q8_0,V=turbo3 - K=bf16,V=turbo3 | -0.0078 | 1.000000 |
+| K=q8_0,V=turbo3 - K=q8_0,V=turbo4 | 0.0078 | 1.000000 |
+| K=q8_0,V=turbo3 - K=bf16,V=turbo4 | 0.0078 | 1.000000 |
+| K=bf16,V=turbo3 - K=q8_0,V=turbo4 | 0.0156 | 0.750973 |
+| K=bf16,V=turbo3 - K=bf16,V=turbo4 | 0.0156 | 0.750973 |
+| K=q8_0,V=turbo4 - K=bf16,V=turbo4 | 0.0000 | 1.000000 |
+
+The four-policy Friedman within-fold permutation p-value is `0.781022`.
+Benchmark slices are stable in the same direction: MMLU-STEM is `0.7031`
+accuracy for all four measured policies, while GSM8K numeric-MCQ ranges from
+`0.3906` to `0.4219`. `turbo8` is only a parser/runtime-support probe in this
 installed llama.cpp build (`Unsupported cache type: turbo8`).
 
 Artifacts:
@@ -464,6 +477,9 @@ Artifacts:
 - `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv/lm_eval_gguf_kv_cv_report.md`
 - `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv/lm_eval_gguf_kv_cv_report.json`
 - `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv/gptimage2_lm_eval_gguf_kv_cv.png`
+- `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/lm_eval_gguf_kv_cv_report.md`
+- `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/lm_eval_gguf_kv_cv_report.json`
+- `_docs/assets/2026-05-20-lm-eval-gguf-kv-cv-128/gptimage2_lm_eval_gguf_kv_cv.png`
 
 ### 2026-05-17 L=3 LLM evidence gates
 

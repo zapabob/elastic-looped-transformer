@@ -6,15 +6,17 @@ payload, so this script keeps lm-eval's task/evaluator pipeline but provides a
 small local LM adapter that scores one-token multiple-choice labels from the
 server response.
 
-This is intentionally a small external-heldout CV gate. It does not turn the
-current L=3 GGUF into a loop-aware runtime; it only compares the serving
-surface exposed by the installed llama-server for K/V cache policies.
+This is an external-heldout serving-surface CV gate. GSM8K rows are converted
+to numeric multiple-choice rows so the same one-token letter scoring path can
+compare K/V cache policies. It does not turn the current L=3 GGUF into a
+loop-aware runtime or a broad GSM8K leaderboard result.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import decimal
 import json
 import math
 import os
@@ -23,7 +25,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean, stdev
-from typing import Any
+from typing import Any, Iterable
 
 import requests
 
@@ -32,6 +34,7 @@ from elt_lm.eval.statistics import friedman_permutation_test, pairwise_group_com
 
 DEFAULT_SOURCE = Path("_docs/assets/2026-05-17-l3-thetom-k-protected/external_heldout/mmlu_stem_external_heldout.jsonl")
 DEFAULT_OUT_DIR = Path("_docs/assets/2026-05-20-lm-eval-gguf-kv-cv")
+DEFAULT_TASK = "elt_external_heldout_letter_cv"
 DEFAULT_MODEL = Path("H:/elt_data/releases/elt-lm-qwen35-side-stem-aha-ilsd-l3-Q8_0.gguf")
 DEFAULT_LLAMA_SERVER = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs/llama-turboquant/bin/llama-server.exe"
 DEFAULT_POLICIES = [
@@ -68,29 +71,119 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8")
 
 
-def build_lm_eval_rows(source: Path, *, folds: int, max_cases: int | None = None) -> list[dict[str, Any]]:
+def _numeric_from_gsm8k_reference(reference: str) -> str | None:
+    import re
+
+    match = re.search(r"####\s*(-?[\d,]+(?:\.\d+)?)", reference)
+    if not match:
+        match = re.search(r"-?[\d,]+(?:\.\d+)?", reference)
+    return match.group(0).replace("####", "").strip().replace(",", "") if match else None
+
+
+def _format_decimal(value: decimal.Decimal) -> str:
+    if value == value.to_integral_value():
+        return str(int(value))
+    return format(value.normalize(), "f")
+
+
+def _gsm8k_distractors(answer_text: str) -> list[str]:
+    answer = decimal.Decimal(answer_text)
+    candidates = [
+        answer + 1,
+        answer - 1,
+        answer * 2,
+        answer / 2 if answer != 0 else decimal.Decimal(2),
+        answer + 10,
+        answer - 10,
+    ]
+    seen = {answer_text}
+    distractors: list[str] = []
+    for candidate in candidates:
+        text = _format_decimal(candidate)
+        if text not in seen:
+            seen.add(text)
+            distractors.append(text)
+        if len(distractors) == 3:
+            break
+    while len(distractors) < 3:
+        fallback = _format_decimal(answer + decimal.Decimal(len(distractors) + 2))
+        if fallback not in seen:
+            seen.add(fallback)
+            distractors.append(fallback)
+    return distractors
+
+
+def _build_gsm8k_mcq_row(row: dict[str, Any], *, case_id: int, fold: int) -> dict[str, Any] | None:
+    answer = _numeric_from_gsm8k_reference(str(row.get("reference", "")))
+    if answer is None:
+        return None
+    distractors = _gsm8k_distractors(answer)
+    correct_idx = case_id % len(LABELS)
+    values = list(distractors)
+    values.insert(correct_idx, answer)
+    choices_text = "\n".join(f"{label}. {value}" for label, value in zip(LABELS, values))
+    prompt = (
+        f"{str(row['prompt']).rstrip()}\n\n"
+        "Choices:\n"
+        f"{choices_text}\n\n"
+        "Answer:"
+    )
+    return {
+        "case_id": case_id,
+        "fold": fold,
+        "prompt": prompt,
+        "choices": [f" {label}" for label in LABELS],
+        "target": correct_idx,
+        "reference": LABELS[correct_idx],
+        "source": row.get("source", ""),
+        "task_name": row.get("metadata", {}).get("task_name", "gsm8k"),
+        "benchmark": "gsm8k_numeric_mcq",
+        "answer": answer,
+        "choice_values": values,
+    }
+
+
+def _iter_source_rows(sources: Iterable[Path]) -> Iterable[dict[str, Any]]:
+    for source in sources:
+        for row in read_jsonl(source):
+            row = dict(row)
+            row["_source_path"] = str(source)
+            yield row
+
+
+def build_lm_eval_rows(sources: Path | list[Path], *, folds: int, max_cases: int | None = None) -> list[dict[str, Any]]:
+    source_list = [sources] if isinstance(sources, Path) else list(sources)
     rows: list[dict[str, Any]] = []
-    for idx, row in enumerate(read_jsonl(source)):
-        if max_cases is not None and idx >= max_cases:
+    for raw_idx, row in enumerate(_iter_source_rows(source_list)):
+        if max_cases is not None and len(rows) >= max_cases:
             break
         reference = str(row.get("reference", "")).strip().upper()
-        if reference not in LABELS:
+        case_id = len(rows)
+        fold = case_id % max(1, folds)
+        if reference in LABELS:
+            prompt = str(row["prompt"]).rstrip()
+            rows.append(
+                {
+                    "case_id": case_id,
+                    "fold": fold,
+                    "prompt": f"{prompt}\n\nAnswer:",
+                    "choices": [f" {label}" for label in LABELS],
+                    "target": LABELS.index(reference),
+                    "reference": reference,
+                    "source": row.get("source", ""),
+                    "task_name": row.get("metadata", {}).get("task_name", ""),
+                    "benchmark": row.get("metadata", {}).get("benchmark", "mmlu_stem"),
+                    "source_row_index": raw_idx,
+                }
+            )
             continue
-        prompt = str(row["prompt"]).rstrip()
-        rows.append(
-            {
-                "case_id": idx,
-                "fold": idx % max(1, folds),
-                "prompt": f"{prompt}\n\nAnswer:",
-                "choices": [f" {label}" for label in LABELS],
-                "target": LABELS.index(reference),
-                "reference": reference,
-                "source": row.get("source", ""),
-                "task_name": row.get("metadata", {}).get("task_name", ""),
-            }
-        )
+        if str(row.get("task", "")).lower() == "gsm8k":
+            built = _build_gsm8k_mcq_row(row, case_id=case_id, fold=fold)
+            if built is not None:
+                built["source_row_index"] = raw_idx
+                rows.append(built)
     if not rows:
-        raise ValueError(f"no MMLU-style letter rows found in {source}")
+        raise ValueError(f"no usable letter-choice rows found in {', '.join(str(path) for path in source_list)}")
     return rows
 
 
@@ -316,9 +409,9 @@ def stop_server(process: subprocess.Popen[Any]) -> None:
         process.kill()
 
 
-def lm_eval_task_config(data_path: Path) -> dict[str, Any]:
+def lm_eval_task_config(data_path: Path, *, task_name: str) -> dict[str, Any]:
     return {
-        "task": "elt_mmlu_stem_external_letter_cv",
+        "task": task_name,
         "dataset_path": "json",
         "dataset_kwargs": {"data_files": {"test": str(data_path)}},
         "test_split": "test",
@@ -344,6 +437,7 @@ def run_policy_eval(
     out_dir: Path,
     startup_timeout_sec: int,
     request_timeout_sec: int,
+    task_name: str,
 ) -> dict[str, Any]:
     process, base_url, server = start_server(
         llama_server=llama_server,
@@ -361,7 +455,7 @@ def run_policy_eval(
         from lm_eval import evaluator
 
         adapter = LlamaServerLetterLM(base_url, n_probs=n_probs, request_timeout=request_timeout_sec)
-        task_config = lm_eval_task_config(data_path)
+        task_config = lm_eval_task_config(data_path, task_name=task_name)
         lm_result = evaluator.simple_evaluate(
             model=adapter.lm,
             tasks=[task_config],
@@ -385,6 +479,7 @@ def run_policy_eval(
                     "case_id": source_row["case_id"],
                     "fold": source_row["fold"],
                     "task_name": source_row["task_name"],
+                    "benchmark": source_row.get("benchmark", ""),
                     "reference": source_row["reference"],
                     "prediction": LABELS[pred_idx],
                     "correct": int(pred_idx == int(source_row["target"])),
@@ -431,6 +526,16 @@ def compare_policies(rows: list[dict[str, Any]], *, folds: int) -> dict[str, Any
     }
 
 
+def compare_policies_by_group(rows: list[dict[str, Any]], *, folds: int, group_key: str) -> dict[str, Any]:
+    groups: dict[str, dict[str, Any]] = {}
+    for group in sorted({str(row.get(group_key, "")) for row in rows}):
+        if not group:
+            continue
+        group_rows = [row for row in rows if str(row.get(group_key, "")) == group]
+        groups[group] = compare_policies(group_rows, folds=folds)
+    return groups
+
+
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
@@ -447,6 +552,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         f"- Task: `{report['task']}`",
         f"- Cases: `{report['n_cases']}`; folds: `{report['folds']}`",
+        f"- Benchmarks: `{', '.join(report.get('benchmarks', []))}`",
         f"- Model: `{report['model']}`",
         f"- Runtime: llama-server `--ngl {report['ngl']}` with OpenAI-compatible `/completion` logprobs through lm-eval.",
         "",
@@ -474,8 +580,30 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"Friedman within-fold permutation p: `{omnibus['p_value']:.6f}` "
             f"(statistic `{omnibus['statistic']:.4f}`, n={omnibus['n_blocks']}).",
         ])
+    by_benchmark = report.get("comparison_by_benchmark") or {}
+    for benchmark, comparison in by_benchmark.items():
+        lines.extend([
+            "",
+            f"## Benchmark slice: `{benchmark}`",
+            "",
+            "| policy | folds | accuracy mean +/- SEM | 95% CI |",
+            "|---|---:|---:|---:|",
+        ])
+        for row in comparison["summaries"]:
+            lines.append(
+                f"| `{row['policy']}` | {int(row['n'])} | {row['mean']:.4f} +/- {row['sem']:.4f} | "
+                f"[{row['ci95_low']:.4f}, {row['ci95_high']:.4f}] |"
+            )
+        bench_omnibus = comparison.get("omnibus")
+        if bench_omnibus:
+            lines.append("")
+            lines.append(f"Friedman p: `{bench_omnibus['p_value']:.6f}`.")
     lines.append("")
-    lines.append("Scope: small external MMLU-STEM letter-choice CV. This is a logged lm-eval-harness serving-surface gate, not a broad leaderboard result.")
+    lines.append(
+        "Scope: external-heldout letter-choice CV. MMLU-STEM rows are native MCQ; "
+        "GSM8K rows are numeric-MCQ transformations of GSM8K test examples. "
+        "This is a logged lm-eval-harness serving-surface gate, not a broad leaderboard result."
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -496,7 +624,7 @@ def render_plot(report: dict[str, Any], out_dir: Path) -> Path:
     ax.bar(range(len(rows)), means, yerr=sems, capsize=5, color=colors)
     ax.set_ylim(0, 1)
     ax.set_ylabel("accuracy")
-    ax.set_title("lm-eval GGUF K/V CV: external MMLU-STEM")
+    ax.set_title("lm-eval GGUF K/V CV: external heldout")
     ax.set_xticks(range(len(rows)))
     ax.set_xticklabels(labels, fontsize=8)
     ax.grid(axis="y", alpha=0.25)
@@ -514,12 +642,14 @@ def render_plot(report: dict[str, Any], out_dir: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    parser.add_argument("--sources", default="", help="comma-separated JSONL sources; overrides --source")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--llama-server", type=Path, default=DEFAULT_LLAMA_SERVER)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--policies", default="")
     parser.add_argument("--folds", type=int, default=4)
     parser.add_argument("--max-cases", type=int, default=16)
+    parser.add_argument("--task-name", default=DEFAULT_TASK)
     parser.add_argument("--port", type=int, default=18080)
     parser.add_argument("--ctx-size", type=int, default=512)
     parser.add_argument("--ngl", type=int, default=999)
@@ -529,8 +659,9 @@ def main() -> None:
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    data_rows = build_lm_eval_rows(args.source, folds=args.folds, max_cases=args.max_cases)
-    data_path = args.out_dir / "lm_eval_mmlu_stem_letter_cv.jsonl"
+    sources = [Path(item.strip()) for item in args.sources.split(",") if item.strip()] if args.sources else [args.source]
+    data_rows = build_lm_eval_rows(sources, folds=args.folds, max_cases=args.max_cases)
+    data_path = args.out_dir / "lm_eval_external_heldout_letter_cv.jsonl"
     write_jsonl(data_path, data_rows)
     policies = parse_policies(args.policies)
     policy_reports: list[dict[str, Any]] = []
@@ -549,13 +680,14 @@ def main() -> None:
             out_dir=args.out_dir,
             startup_timeout_sec=args.startup_timeout_sec,
             request_timeout_sec=args.request_timeout_sec,
+            task_name=args.task_name,
         )
         policy_reports.append({k: v for k, v in report.items() if k != "lm_eval"})
         all_rows.extend(report["rows"])
     comparison = compare_policies(all_rows, folds=args.folds)
     full_report = {
-        "task": "elt_mmlu_stem_external_letter_cv",
-        "source": str(args.source),
+        "task": args.task_name,
+        "sources": [str(source) for source in sources],
         "data": str(data_path),
         "model": args.model.name,
         "llama_server": args.llama_server.name,
@@ -563,8 +695,10 @@ def main() -> None:
         "n_cases": len(data_rows),
         "ngl": args.ngl,
         "policies": [policy.name for policy in policies],
+        "benchmarks": sorted({str(row.get("benchmark", "")) for row in data_rows if row.get("benchmark")}),
         "policy_reports": policy_reports,
         "comparison": comparison,
+        "comparison_by_benchmark": compare_policies_by_group(all_rows, folds=args.folds, group_key="benchmark"),
     }
     write_csv(args.out_dir / "lm_eval_gguf_kv_cv_rows.csv", all_rows)
     write_csv(args.out_dir / "lm_eval_gguf_kv_cv_summary.csv", comparison["summaries"])

@@ -1,0 +1,21 @@
+{
+  "gsm8k": {
+    "path": "_docs\\assets\\2026-05-20-lm-eval-gguf-kv-cv-128\\heldout\\gsm8k_external_heldout.jsonl",
+    "records": 64,
+    "dataset": "gsm8k",
+    "config": "main",
+    "split": "test"
+  },
+  "mmlu_stem": {
+    "path": "_docs\\assets\\2026-05-20-lm-eval-gguf-kv-cv-128\\heldout\\mmlu_stem_external_heldout.jsonl",
+    "records": 64,
+    "dataset": "cais/mmlu",
+    "configs": [
+      "college_physics",
+      "high_school_physics",
+      "college_biology",
+      "high_school_chemistry"
+    ],
+    "split": "test"
+  }
+}
