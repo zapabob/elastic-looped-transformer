@@ -30,6 +30,19 @@ tags:
 
 ---
 
+## AI Engineering Evidence Card
+
+| Field | Current public evidence |
+| --- | --- |
+| Model surface | Elastic Looped Transformer causal LM with shared layers, selectable inference loop count `L`, ILSD, GRPO, and HuggingFace `trust_remote_code` export |
+| Dataset surface | Redistributable `synthetic-v2-hard` training/evaluation snapshot plus `training_data/DATA_SOURCES.md` and `training_data/source_citations.yaml` |
+| Metrics | Anytime loop telemetry, self-correction/overthinking rates, per-loop accuracy, entropy trajectory, latency/token, tokens/sec, VRAM, and cross-validated benchmark comparison |
+| Repro command | `uv run elt-train --config configs/base_1B.yaml`, `uv run python scripts/pipeline.py`, and `uv run python -m elt_lm.eval.benchmark_comparison ...` |
+| Hardware proof | 1 B non-embedding config smoke on a single RTX 3060 12 GB with paged AdamW 8-bit and documented peak VRAM |
+| Limitations | Large tokenized binaries and long-running checkpoints are generated artifacts, not committed; model releases must cite exact public datasets and commit hashes |
+
+---
+
 ## What's in the box
 
 - **ELT core** (`src/elt_lm/`) — N shared Transformer layers iterated L times at
